@@ -43,10 +43,11 @@
     transition: opacity 0.6s ease;
   }
   #hint.hidden { opacity: 0; }
-  /* Controls: one row, pinned to the bottom edge. Every target >= 40px so
-     it stays tappable at 375px width. */
+  /* Controls: pinned to the bottom edge. Every target >= 40px, and the row
+     wraps at narrow widths (e.g. 375px) so nothing clips or truncates. */
   #controls {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     justify-content: center;
     gap: 8px;
@@ -163,6 +164,7 @@
   }
 
   canvas.addEventListener('pointerdown', function (e) {
+    if (e.button !== 0) return; // primary button only (touch/pen report 0)
     if (activePointerId !== null) return; // first active pointer wins
     activePointerId = e.pointerId;
     canvas.setPointerCapture(e.pointerId);
@@ -247,8 +249,13 @@
   // --- Clear / Save --------------------------------------------------------
   document.getElementById('clear').addEventListener('click', function () {
     // No confirmation, no history: repaint the background and move on.
+    // Paint the full backing store in device pixels so Clear is complete
+    // even while a debounced resize is still pending.
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.fillStyle = BG;
-    ctx.fillRect(0, 0, stage.clientWidth, stage.clientHeight);
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.restore();
   });
 
   document.getElementById('save').addEventListener('click', function () {
