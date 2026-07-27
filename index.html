@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>orbit-doodle</title>
+<style>
+  /* Layout: canvas fills everything above a fixed-height controls bar.
+     No page scroll ever — the canvas owns the viewport. */
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; overflow: hidden; }
+  body {
+    display: flex;
+    flex-direction: column;
+    background: #111;
+    font-family: system-ui, -apple-system, sans-serif;
+  }
+  #stage {
+    position: relative; /* anchor for the hint overlay */
+    flex: 1;
+    min-height: 0;
+  }
+  canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+    touch-action: none; /* touch drags must draw, not scroll */
+    cursor: crosshair;
+  }
+  /* Hint lives in the DOM (not the canvas) so it never shows up in exports. */
+  #hint {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: rgba(245, 239, 230, 0.55);
+    font-size: 1.1rem;
+    letter-spacing: 0.02em;
+    text-align: center;
+    padding: 0 1rem;
+    pointer-events: none; /* never intercept the drawing pointer */
+    transition: opacity 0.6s ease;
+  }
+  #hint.hidden { opacity: 0; }
+  /* Controls: one row, pinned to the bottom edge. Every target >= 40px so
+     it stays tappable at 375px width. */
+  #controls {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 8px;
+    background: #1b1b1b;
+    border-top: 1px solid #2a2a2a;
+  }
+  .swatch {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    border: 2px solid transparent;
+    cursor: pointer;
+    flex: none;
+  }
+  .swatch.active {
+    border-color: #f5efe6;
+    box-shadow: 0 0 0 2px #111 inset;
+  }
+  #controls button.action {
+    min-height: 40px;
+    min-width: 40px;
+    padding: 0 14px;
+    border: 1px solid #3a3a3a;
+    border-radius: 8px;
+    background: #242424;
+    color: #f5efe6;
+    font-size: 0.95rem;
+    cursor: pointer;
+    flex: none;
+  }
+  #controls button.action:active { background: #333; }
+</style>
+</head>
+<body>
+<div id="stage">
+  <canvas id="canvas"></canvas>
+  <div id="hint">press and drag — the pen orbits you</div>
+</div>
+<div id="controls">
+  <!-- Swatches injected by JS from the palette so color data lives in one place -->
+  <button class="action" id="clear" type="button">Clear</button>
+  <button class="action" id="save" type="button">Save PNG</button>
+</div>
+<script>
+(function () {
+  'use strict';
+
+  var BG = '#111';
+  // warm white, coral, gold, mint, sky blue
+  var PALETTE = ['#f5efe6', '#ff6b6b', '#ffc94d', '#6be5b0', '#6bb8ff'];
+
+  var stage = document.getElementById('stage');
+  var canvas = document.getElementById('canvas');
+  var hint = document.getElementById('hint');
+  var controls = document.getElementById('controls');
+  var ctx = canvas.getContext('2d');
+
+  var strokeColor = PALETTE[0];
+
+  // Size the backing store for devicePixelRatio; keep ctx in CSS-pixel units.
+  // Background is painted onto the canvas itself so PNG exports are WYSIWYG.
+  function sizeCanvas() {
+    var dpr = window.devicePixelRatio || 1;
+    var w = stage.clientWidth;
+    var h = stage.clientHeight;
+    canvas.width = Math.round(w * dpr);
+    canvas.height = Math.round(h * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.fillStyle = BG;
+    ctx.fillRect(0, 0, w, h);
+  }
+
+  // Build the 5 swatch buttons ahead of Clear/Save.
+  PALETTE.forEach(function (color, i) {
+    var b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'swatch' + (i === 0 ? ' active' : '');
+    b.style.background = color;
+    b.setAttribute('aria-label', 'color ' + (i + 1));
+    b.addEventListener('click', function () {
+      strokeColor = color;
+      var prev = controls.querySelector('.swatch.active');
+      if (prev) prev.classList.remove('active');
+      b.classList.add('active');
+    });
+    controls.insertBefore(b, document.getElementById('clear'));
+  });
+
+  sizeCanvas();
+})();
+</script>
+</body>
+</html>
