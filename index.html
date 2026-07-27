@@ -136,7 +136,116 @@
     controls.insertBefore(b, document.getElementById('clear'));
   });
 
+  // --- Orbit pen physics ---------------------------------------------------
+  // The visible pen circles an invisible center; the center chases the
+  // pointer with lerp momentum. All tuning constants are expressed per
+  // 60fps frame and normalized by dt so the feel is frame-rate independent.
+  var CHASE = 0.12;        // center lerp factor per 60fps frame
+  var ANGULAR_VEL = 0.22;  // pen angle advance, rad per 60fps frame
+  var ORBIT_RADIUS = 40;   // px
+  var WIDTH_MIN = 1, WIDTH_MAX = 6; // stroke taper clamp, px
+  var FRAME = 1000 / 60;
+
+  var drawing = false;
+  var activePointerId = null;
+  var pointerX = 0, pointerY = 0;  // last-known pointer position (CSS px)
+  var centerX = 0, centerY = 0;    // orbit center (chases pointer)
+  var angle = 0;
+  var penX = 0, penY = 0;
+  var firstFrame = false;          // skip the segment right after pointerdown
+  var strokeW = WIDTH_MAX;         // smoothed stroke width
+  var hintHidden = false;
+  var lastTime = null;
+
+  function pointerPos(e) {
+    var rect = canvas.getBoundingClientRect();
+    return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+  }
+
+  canvas.addEventListener('pointerdown', function (e) {
+    if (activePointerId !== null) return; // first active pointer wins
+    activePointerId = e.pointerId;
+    canvas.setPointerCapture(e.pointerId);
+    var p = pointerPos(e);
+    pointerX = p.x;
+    pointerY = p.y;
+    // Snap the center to the pointer so a new stroke never teleport-streaks
+    // from wherever the last stroke ended.
+    centerX = p.x;
+    centerY = p.y;
+    penX = centerX + ORBIT_RADIUS * Math.cos(angle);
+    penY = centerY + ORBIT_RADIUS * Math.sin(angle);
+    firstFrame = true;
+    drawing = true;
+  });
+
+  canvas.addEventListener('pointermove', function (e) {
+    if (e.pointerId !== activePointerId) return;
+    var p = pointerPos(e);
+    pointerX = p.x;
+    pointerY = p.y;
+  });
+
+  function liftPen(e) {
+    if (e && e.pointerId !== undefined && e.pointerId !== activePointerId) return;
+    drawing = false;
+    activePointerId = null;
+  }
+  canvas.addEventListener('pointerup', liftPen);
+  canvas.addEventListener('pointercancel', liftPen);
+  // An interrupted touch (alt-tab, incoming call) must never leave the pen stuck.
+  window.addEventListener('blur', function () { liftPen(); });
+
+  function tick(now) {
+    if (lastTime === null) lastTime = now;
+    // Clamp dt so a backgrounded tab doesn't produce one giant physics jump.
+    var dt = Math.min(now - lastTime, 3 * FRAME);
+    lastTime = now;
+    var frames = dt / FRAME;
+
+    if (drawing) {
+      // Frame-rate-normalized lerp: equivalent to CHASE per frame at 60fps.
+      var alpha = 1 - Math.pow(1 - CHASE, frames);
+      centerX += (pointerX - centerX) * alpha;
+      centerY += (pointerY - centerY) * alpha;
+      angle += ANGULAR_VEL * frames;
+
+      var prevX = penX, prevY = penY;
+      penX = centerX + ORBIT_RADIUS * Math.cos(angle);
+      penY = centerY + ORBIT_RADIUS * Math.sin(angle);
+
+      if (firstFrame) {
+        firstFrame = false;
+      } else {
+        // Speed taper: fast pen = thin line, slow pen = thick. The orbit
+        // alone moves the pen ~9px/frame, so the map starts near that floor.
+        var dist = Math.hypot(penX - prevX, penY - prevY);
+        var speed = frames > 0 ? dist / frames : 0; // px per 60fps frame
+        var target = WIDTH_MAX - (speed - 8) * 0.18;
+        if (target < WIDTH_MIN) target = WIDTH_MIN;
+        if (target > WIDTH_MAX) target = WIDTH_MAX;
+        strokeW += (target - strokeW) * 0.3; // smooth so width never pops
+
+        ctx.strokeStyle = strokeColor;
+        ctx.lineWidth = strokeW;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        ctx.beginPath();
+        ctx.moveTo(prevX, prevY);
+        ctx.lineTo(penX, penY);
+        ctx.stroke();
+
+        if (!hintHidden) {
+          hintHidden = true;
+          hint.classList.add('hidden');
+        }
+      }
+    }
+    requestAnimationFrame(tick);
+  }
+
   sizeCanvas();
+  requestAnimationFrame(tick);
 })();
 </script>
 </body>
