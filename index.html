@@ -263,6 +263,26 @@
     });
   });
 
+  // --- Resize survival -----------------------------------------------------
+  // Resizing a canvas wipes it, so: snapshot to an offscreen canvas, resize,
+  // repaint the background, then draw the snapshot back at top-left. The
+  // snapshot is copied at its original CSS size (old dpr divided out) so
+  // artwork keeps its scale across dpr changes (e.g. dragging between screens).
+  var resizeTimer = null;
+  window.addEventListener('resize', function () {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(function () {
+      if (canvas.width === 0 || canvas.height === 0) { sizeCanvas(); return; }
+      var oldDpr = ctx.getTransform().a || 1;
+      var snap = document.createElement('canvas');
+      snap.width = canvas.width;
+      snap.height = canvas.height;
+      snap.getContext('2d').drawImage(canvas, 0, 0);
+      sizeCanvas();
+      ctx.drawImage(snap, 0, 0, snap.width / oldDpr, snap.height / oldDpr);
+    }, 100);
+  });
+
   sizeCanvas();
   requestAnimationFrame(tick);
 })();
