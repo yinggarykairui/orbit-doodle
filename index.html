@@ -164,6 +164,40 @@
   };
   var PEN_ORDER = ['orbit', 'coil', 'drift'];
 
+  // The pen constants above are sized for a desktop window. On a phone they are
+  // not: `drift`'s 95px radius is a 190px loop on a 375px canvas, so every
+  // stroke drawn within 95px of an edge gets its loop amputated with no signal
+  // that anything was lost. So the orbit is scaled against the short viewport
+  // edge, below a reference edge of 640px — at or above that (any desktop
+  // window, and any tablet in portrait) the factor is exactly 1 and the pens
+  // are the constants above, unchanged, which is what keeps `orbit` drawing
+  // what day 004 drew.
+  //
+  // speedBase scales with the radius because it *is* roughly angVel * radius,
+  // the speed the orbit produces on its own; taper scales inversely so the
+  // width curve stays the same shape over the compressed speed range. Scaling
+  // radius alone would flatten the taper into a constant-width line.
+  var REF_EDGE = 640;
+  var penScale = 1;
+
+  function updatePenScale() {
+    var shortEdge = Math.min(window.innerWidth, window.innerHeight);
+    penScale = Math.min(1, shortEdge / REF_EDGE);
+  }
+
+  function scaledPen(pen) {
+    if (penScale === 1) return pen;
+    return {
+      chase: pen.chase,
+      angVel: pen.angVel,
+      radius: pen.radius * penScale,
+      wMin: pen.wMin,
+      wMax: pen.wMax,
+      speedBase: pen.speedBase * penScale,
+      taper: pen.taper / penScale
+    };
+  }
+
   var stage = document.getElementById('stage');
   var canvas = document.getElementById('canvas');
   var hint = document.getElementById('hint');
@@ -176,7 +210,7 @@
 
   var strokeColor = PALETTE[0];
   var penId = 'orbit';        // the pen the next stroke will use
-  var livePen = PENS[penId];  // the pen the stroke in progress is using
+  var livePen = PENS[penId];  // the pen the stroke in progress is using (scaled)
 
   // The CSS-pixel size the backing store was last built for. redraw() fills
   // this, not stage.clientWidth/Height: between a resize event and the end of
@@ -192,6 +226,7 @@
     var dpr = Math.min(window.devicePixelRatio || 1, 2);
     viewW = stage.clientWidth;
     viewH = stage.clientHeight;
+    updatePenScale();
     canvas.width = Math.round(viewW * dpr);
     canvas.height = Math.round(viewH * dpr);
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -386,8 +421,10 @@
     centerX = p.x;
     centerY = p.y;
     // The pen is captured here, so switching pens mid-gesture is impossible
-    // and a stroke's physics matches the id it is recorded under.
-    livePen = PENS[penId];
+    // and a stroke's physics matches the id it is recorded under. A later
+    // resize cannot restyle this stroke: the path it emits is what history
+    // keeps, so replay is faithful whatever the scale becomes.
+    livePen = scaledPen(PENS[penId]);
     penX = centerX + livePen.radius * Math.cos(angle);
     penY = centerY + livePen.radius * Math.sin(angle);
     firstFrame = true;
