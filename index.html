@@ -167,11 +167,18 @@
   // The pen constants above are sized for a desktop window. On a phone they are
   // not: `drift`'s 95px radius is a 190px loop on a 375px canvas, so every
   // stroke drawn within 95px of an edge gets its loop amputated with no signal
-  // that anything was lost. So the orbit is scaled against the short viewport
-  // edge, below a reference edge of 640px — at or above that (any desktop
-  // window, and any tablet in portrait) the factor is exactly 1 and the pens
-  // are the constants above, unchanged, which is what keeps `orbit` drawing
-  // what day 004 drew.
+  // that anything was lost. So the orbit is scaled against the short edge of
+  // the viewport — `innerWidth`/`innerHeight`, which counts the control bar,
+  // not the canvas alone — below a reference edge of 640px.
+  //
+  // At or above 640px the factor is exactly 1 and the pens are the constants
+  // above, unchanged, which is what keeps `orbit` drawing what day 004 drew:
+  // 1440x900 and 1440x700 both measure 1.000, as does a tablet in portrait.
+  // Below it the factor is continuous rather than a phone-only special case,
+  // so a short desktop window does draw a slightly smaller orbit — 1440x620
+  // measures 0.969, 1280x600 0.938. That is deliberate: the short edge is what
+  // a wide loop runs out of first, whatever the device is. The 375x667 phone
+  // this exists for measures 0.586.
   //
   // speedBase scales with the radius because it *is* roughly angVel * radius,
   // the speed the orbit produces on its own; taper scales inversely so the
