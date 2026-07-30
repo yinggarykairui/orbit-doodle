@@ -408,11 +408,33 @@
     return { x: e.clientX - rect.left, y: e.clientY - rect.top };
   }
 
+  // Capture keeps a drag drawing after it leaves the canvas. It is an
+  // enhancement, not a requirement — without it the stroke simply stops
+  // tracking at the edge — and `setPointerCapture` throws for a pointer id the
+  // browser has no live record of. So it is attempted, never depended on: an
+  // escaping throw would leave `activePointerId` latched on a pointer that can
+  // never send pointerup, and the app would be permanently unable to start
+  // another stroke while every button still worked, i.e. broken but alive.
+  function tryCapture(id) {
+    try { canvas.setPointerCapture(id); } catch (err) { /* no capture; still draws */ }
+  }
+
+  // ...and the same latch is reachable without any throw, from a pointer that
+  // goes down and is never heard from again. So the claim on `activePointerId`
+  // is only honoured while the canvas actually holds that pointer's capture:
+  // a fresh pointerdown against a stale claim ends the old gesture and takes
+  // over, which makes "unable to draw" a state the app cannot stay in.
+  function activePointerIsLive() {
+    return activePointerId !== null &&
+      (!canvas.hasPointerCapture || canvas.hasPointerCapture(activePointerId));
+  }
+
   canvas.addEventListener('pointerdown', function (e) {
     if (e.button !== 0) return; // primary button only (touch/pen report 0)
-    if (activePointerId !== null) return; // first active pointer wins
+    if (activePointerIsLive()) return; // first active pointer wins
+    if (activePointerId !== null) liftPen(); // stale claim: commit it and take over
     activePointerId = e.pointerId;
-    canvas.setPointerCapture(e.pointerId);
+    tryCapture(e.pointerId);
     var p = pointerPos(e);
     pointerX = p.x;
     pointerY = p.y;
