@@ -65,7 +65,7 @@ selection or per-stroke editing · a history panel.
 
 ## Architecture sketch
 
-Current build (day 004): one IIFE in `index.html`, no globals, no deps, no
+Shipped build (day 006): one IIFE in `index.html`, no globals, no deps, no
 build step. Three parts:
 
 - **Layout/CSS.** Flex column: `#stage` (canvas + DOM hint overlay) over
@@ -80,9 +80,9 @@ build step. Three parts:
 - **Chrome.** Swatches built from the `PALETTE` array (colour data lives in
   one place); Clear repaints the full backing store in device pixels; Save PNG
   goes through `toBlob` with a null guard; resize is debounced 100 ms and
-  currently snapshot-restores.
+  replays history (the day-004 snapshot-restore is gone).
 
-Increment 2 changes the shape as follows:
+Increment 2 changed the shape as follows, and this is what ships today:
 
 - **History is the source of truth; the canvas is a view of it.** Any code
   that changes what is on screen goes through one `redraw()` that repaints the
@@ -102,8 +102,11 @@ Increment 2 changes the shape as follows:
   chase, angular velocity, orbit radius, and width min/max. The live loop
   reads the active pen; a stroke carries its pen id so replay reads the same
   set. The day-004 constants become the `orbit` entry verbatim.
-- **Resize** becomes `sizeCanvas(); redraw();` — the debounce and the
-  zero-size guard stay, the offscreen snapshot goes away.
+- **Resize** became `sizeCanvas(); redraw();` — the debounce stays and the
+  offscreen snapshot is gone. The day-004 zero-size guard went with it: it
+  existed only so `drawImage` could not throw on a zero-sized snapshot, and
+  `fillRect`/`stroke` at zero size are no-ops (confirmed under a rapid-resize
+  storm).
 
 ## Done-map
 
@@ -122,23 +125,34 @@ Increment 2 changes the shape as follows:
 
 **Increment 2 (day 006)** — stroke history, undo/redo, three pens:
 
-- [ ] History model: entries (stroke | clear) + cursor; `redraw()` is the only
+- [x] History model: entries (stroke | clear) + cursor; `redraw()` is the only
       path that repaints the canvas
-- [ ] Strokes record pen samples (x, y, width) + colour + pen id; no bitmap
+- [x] Strokes record pen samples (x, y, width) + colour + pen id; no bitmap
       snapshots anywhere in the history path
-- [ ] Undo/redo buttons (`↶` `↷`, disabled when unavailable) and Ctrl/Cmd+Z,
+- [x] Undo/redo buttons (`↶` `↷`, disabled when unavailable) and Ctrl/Cmd+Z,
       Ctrl/Cmd+Shift+Z, Ctrl+Y — same code path
-- [ ] New stroke after an undo truncates the redo tail
-- [ ] Clear is one undoable entry; no-op on an empty canvas
-- [ ] Resize replays history instead of stretching a snapshot; snapshot block
+- [x] New stroke after an undo truncates the redo tail
+- [x] Clear is one undoable entry; no-op on an empty canvas
+- [x] Resize replays history instead of stretching a snapshot; snapshot block
       removed
-- [ ] Pen picker: `orbit` (unchanged), `coil`, `drift`; active-state styling;
+- [x] Pen picker: `orbit` (unchanged), `coil`, `drift`; active-state styling;
       pen carried per stroke through replay
-- [ ] Phone width holds with the enlarged control bar; Save PNG unchanged
-- [ ] README made true (already rewritten README-first), screenshot refreshed
+- [x] Phone width holds with the enlarged control bar; Save PNG unchanged
+- [x] README made true (already rewritten README-first), screenshot refreshed
       from the running build
 
 ## Open threads
+
+- **Viewport-scaled orbit radius.** Not in the increment spec; added during the
+  fix cycle because `drift`'s 95 px radius amputated strokes drawn within ~95 px
+  of any edge on a 375 px canvas — the flagship pen silently ate the line. Pen
+  radius, speed base and taper now scale by `min(1, shortViewportEdge / 640)`,
+  so `orbit` is bit-for-bit the day-004 pen at any short edge ≥ 640 px
+  (measured: 1440x900 and 1440x700 both 1.000) and shrinks below it
+  (1440x620 0.969, 1280x600 0.938, 375x667 0.586). PROJECT.md's
+  "`orbit` (unchanged constants)" holds above the threshold only. Whether a
+  short desktop window should scale at all — it measures the viewport, control
+  bar included, not the canvas — is the open question.
 
 - **Unbounded history.** Nothing caps the entry list. A marathon session grows
   memory and slows replay linearly. The increment ships with a measured bound
