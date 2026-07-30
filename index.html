@@ -80,6 +80,16 @@
     flex: none;
   }
   #controls button.action:active { background: #333; }
+  #controls button.action:disabled {
+    opacity: 0.35;
+    cursor: default;
+  }
+  /* History arrows: square, glyph-only, same 40px target as everything else. */
+  #controls button.history {
+    padding: 0;
+    font-size: 1.35rem;
+    line-height: 1;
+  }
 </style>
 </head>
 <body>
@@ -89,6 +99,8 @@
 </div>
 <div id="controls">
   <!-- Swatches injected by JS from the palette so color data lives in one place -->
+  <button class="action history" id="undo" type="button" aria-label="undo">&#8630;</button>
+  <button class="action history" id="redo" type="button" aria-label="redo">&#8631;</button>
   <button class="action" id="clear" type="button">Clear</button>
   <button class="action" id="save" type="button">Save PNG</button>
 </div>
@@ -104,6 +116,8 @@
   var canvas = document.getElementById('canvas');
   var hint = document.getElementById('hint');
   var controls = document.getElementById('controls');
+  var undoBtn = document.getElementById('undo');
+  var redoBtn = document.getElementById('redo');
   var ctx = canvas.getContext('2d');
 
   var strokeColor = PALETTE[0];
@@ -129,7 +143,14 @@
   // and resize would each redraw a slightly different picture. Cost is ~24
   // bytes per sample, a few KB per stroke; a full-canvas bitmap snapshot at
   // dpr 2 would be ~10 MB apiece, which is why history holds no bitmaps.
+  //
+  // `cursor` is how many entries are currently applied. Everything from
+  // `cursor` to the end of the list is redoable; drawing again throws it away.
+  // Nothing is ever dropped from the front: a stroke is a few KB, so a long
+  // session costs single-digit MB, and evicting old entries would silently
+  // delete artwork the user can still see.
   var history = [];
+  var cursor = 0;
   // The stroke being drawn right now. Live drawing still paints
   // segment-by-segment for latency; this is committed to history on pen-up.
   var pending = null;
@@ -139,8 +160,38 @@
   function redraw() {
     ctx.fillStyle = BG;
     ctx.fillRect(0, 0, stage.clientWidth, stage.clientHeight);
-    for (var i = 0; i < history.length; i++) replayStroke(history[i]);
+    for (var i = 0; i < cursor; i++) replayStroke(history[i]);
     if (pending) replayStroke(pending);
+    updateChrome();
+  }
+
+  // Appending discards the redo tail: history is linear, not a tree.
+  function pushEntry(entry) {
+    history.length = cursor;
+    history.push(entry);
+    cursor++;
+  }
+
+  function undo() { if (cursor > 0) { cursor--; redraw(); } }
+  function redo() { if (cursor < history.length) { cursor++; redraw(); } }
+
+  // Is anything drawn right now? Drives the hint overlay.
+  function hasInk() {
+    if (pending && pending.pts.length >= 6) return true;
+    return cursor > 0;
+  }
+
+  var hintVisible = true;
+  // Buttons and hint always describe the real state — including on first load,
+  // where both arrows start disabled.
+  function updateChrome() {
+    undoBtn.disabled = cursor === 0;
+    redoBtn.disabled = cursor === history.length;
+    var show = !hasInk();
+    if (show !== hintVisible) {
+      hintVisible = show;
+      hint.classList.toggle('hidden', !show);
+    }
   }
 
   function replayStroke(s) {
@@ -175,7 +226,7 @@
       if (prev) prev.classList.remove('active');
       b.classList.add('active');
     });
-    controls.insertBefore(b, document.getElementById('clear'));
+    controls.insertBefore(b, undoBtn);
   });
 
   // --- Orbit pen physics ---------------------------------------------------
@@ -196,7 +247,6 @@
   var penX = 0, penY = 0;
   var firstFrame = false;          // skip the segment right after pointerdown
   var strokeW = WIDTH_MAX;         // smoothed stroke width
-  var hintHidden = false;
   var lastTime = null;
 
   function pointerPos(e) {
@@ -238,8 +288,9 @@
     // Commit the stroke — unless it never drew a segment (a rapid click that
     // ended before the physics moved the pen), which must not leave a ghost.
     if (pending) {
-      if (pending.pts.length >= 6) history.push(pending);
+      if (pending.pts.length >= 6) pushEntry(pending);
       pending = null;
+      updateChrome();
     }
   }
   canvas.addEventListener('pointerup', liftPen);
@@ -292,18 +343,33 @@
         ctx.lineTo(penX, penY);
         ctx.stroke();
 
-        if (!hintHidden) {
-          hintHidden = true;
-          hint.classList.add('hidden');
-        }
+        if (hintVisible) updateChrome();
       }
     }
     requestAnimationFrame(tick);
   }
 
+  // --- Undo / redo ---------------------------------------------------------
+  // Buttons and shortcuts are two doors into the same two functions.
+  undoBtn.addEventListener('click', undo);
+  redoBtn.addEventListener('click', redo);
+
+  window.addEventListener('keydown', function (e) {
+    if (!(e.ctrlKey || e.metaKey) || e.altKey || !e.key) return;
+    var k = e.key.toLowerCase();
+    if (k === 'z') {
+      e.preventDefault();
+      if (e.shiftKey) redo(); else undo();
+    } else if (k === 'y') {
+      e.preventDefault();
+      redo();
+    }
+  });
+
   // --- Clear / Save --------------------------------------------------------
   document.getElementById('clear').addEventListener('click', function () {
     history.length = 0;
+    cursor = 0;
     redraw();
   });
 
