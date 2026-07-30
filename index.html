@@ -84,6 +84,16 @@
     opacity: 0.35;
     cursor: default;
   }
+  /* Pens: same active ring as the swatches, so the two pickers read alike. */
+  #controls button.pen {
+    padding: 0 10px;
+    font-size: 0.85rem;
+    letter-spacing: 0.02em;
+  }
+  #controls button.pen.active {
+    border-color: #f5efe6;
+    background: #333;
+  }
   /* History arrows: square, glyph-only, same 40px target as everything else. */
   #controls button.history {
     padding: 0;
@@ -98,7 +108,7 @@
   <div id="hint">press and drag — the pen orbits you</div>
 </div>
 <div id="controls">
-  <!-- Swatches injected by JS from the palette so color data lives in one place -->
+  <!-- Swatches and pens injected by JS from PALETTE/PENS, so that data lives in one place -->
   <button class="action history" id="undo" type="button" aria-label="undo">&#8630;</button>
   <button class="action history" id="redo" type="button" aria-label="redo">&#8631;</button>
   <button class="action" id="clear" type="button">Clear</button>
@@ -112,6 +122,23 @@
   // warm white, coral, gold, mint, sky blue
   var PALETTE = ['#f5efe6', '#ff6b6b', '#ffc94d', '#6be5b0', '#6bb8ff'];
 
+  // A pen is nothing but a parameter set for the orbit physics below:
+  //   chase     center lerp factor per 60fps frame — low is laggier
+  //   angVel    pen angle advance, rad per 60fps frame
+  //   radius    orbit radius, px — the loop the pen draws is twice this across
+  //   wMin/wMax stroke taper clamp, px
+  //   speedBase pen speed (px per 60fps frame) where the taper starts thinning;
+  //             roughly angVel * radius, the speed the orbit produces on its own
+  //   taper     px of width lost per px/frame of speed above speedBase
+  // `orbit` is day 004's pen, constants unchanged. `coil` is a tight fast
+  // spring; `drift` swings wide and lags, for long lazy loops.
+  var PENS = {
+    orbit: { chase: 0.12, angVel: 0.22, radius: 40, wMin: 1,   wMax: 6,  speedBase: 8.0, taper: 0.18 },
+    coil:  { chase: 0.20, angVel: 0.55, radius: 14, wMin: 0.8, wMax: 3,  speedBase: 7.7, taper: 0.08 },
+    drift: { chase: 0.05, angVel: 0.09, radius: 95, wMin: 3,   wMax: 11, speedBase: 8.6, taper: 0.28 }
+  };
+  var PEN_ORDER = ['orbit', 'coil', 'drift'];
+
   var stage = document.getElementById('stage');
   var canvas = document.getElementById('canvas');
   var hint = document.getElementById('hint');
@@ -121,6 +148,8 @@
   var ctx = canvas.getContext('2d');
 
   var strokeColor = PALETTE[0];
+  var penId = 'orbit';        // the pen the next stroke will use
+  var livePen = PENS[penId];  // the pen the stroke in progress is using
 
   // Size the backing store for devicePixelRatio; keep ctx in CSS-pixel units.
   // dpr is capped at 2: past that the backing store grows quadratically for
@@ -241,14 +270,27 @@
     controls.insertBefore(b, undoBtn);
   });
 
+  // Pen picker, same active-state ring as the swatches.
+  PEN_ORDER.forEach(function (id) {
+    var b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'action pen' + (id === penId ? ' active' : '');
+    b.textContent = id;
+    b.setAttribute('aria-label', 'pen ' + id);
+    b.addEventListener('click', function () {
+      penId = id;
+      var prev = controls.querySelector('.pen.active');
+      if (prev) prev.classList.remove('active');
+      b.classList.add('active');
+    });
+    controls.insertBefore(b, undoBtn);
+  });
+
   // --- Orbit pen physics ---------------------------------------------------
   // The visible pen circles an invisible center; the center chases the
   // pointer with lerp momentum. All tuning constants are expressed per
   // 60fps frame and normalized by dt so the feel is frame-rate independent.
-  var CHASE = 0.12;        // center lerp factor per 60fps frame
-  var ANGULAR_VEL = 0.22;  // pen angle advance, rad per 60fps frame
-  var ORBIT_RADIUS = 40;   // px
-  var WIDTH_MIN = 1, WIDTH_MAX = 6; // stroke taper clamp, px
+  // The tuning constants themselves live in PENS at the top of the file.
   var FRAME = 1000 / 60;
 
   var drawing = false;
@@ -258,7 +300,7 @@
   var angle = 0;
   var penX = 0, penY = 0;
   var firstFrame = false;          // skip the segment right after pointerdown
-  var strokeW = WIDTH_MAX;         // smoothed stroke width
+  var strokeW = 0;                 // smoothed stroke width
   var lastTime = null;
 
   function pointerPos(e) {
@@ -278,12 +320,15 @@
     // from wherever the last stroke ended.
     centerX = p.x;
     centerY = p.y;
-    penX = centerX + ORBIT_RADIUS * Math.cos(angle);
-    penY = centerY + ORBIT_RADIUS * Math.sin(angle);
+    // The pen is captured here, so switching pens mid-gesture is impossible
+    // and a stroke's physics matches the id it is recorded under.
+    livePen = PENS[penId];
+    penX = centerX + livePen.radius * Math.cos(angle);
+    penY = centerY + livePen.radius * Math.sin(angle);
     firstFrame = true;
-    strokeW = WIDTH_MAX; // each stroke tapers from its own start, not the last one's end
+    strokeW = livePen.wMax; // each stroke tapers from its own start, not the last one's end
     drawing = true;
-    pending = { kind: 'stroke', pen: 'orbit', color: strokeColor, pts: [] };
+    pending = { kind: 'stroke', pen: penId, color: strokeColor, pts: [] };
   });
 
   canvas.addEventListener('pointermove', function (e) {
@@ -318,28 +363,28 @@
     var frames = dt / FRAME;
 
     if (drawing) {
-      // Frame-rate-normalized lerp: equivalent to CHASE per frame at 60fps.
-      var alpha = 1 - Math.pow(1 - CHASE, frames);
+      // Frame-rate-normalized lerp: equivalent to pen.chase per frame at 60fps.
+      var alpha = 1 - Math.pow(1 - livePen.chase, frames);
       centerX += (pointerX - centerX) * alpha;
       centerY += (pointerY - centerY) * alpha;
-      angle += ANGULAR_VEL * frames;
+      angle += livePen.angVel * frames;
 
       var prevX = penX, prevY = penY;
-      penX = centerX + ORBIT_RADIUS * Math.cos(angle);
-      penY = centerY + ORBIT_RADIUS * Math.sin(angle);
+      penX = centerX + livePen.radius * Math.cos(angle);
+      penY = centerY + livePen.radius * Math.sin(angle);
 
       if (firstFrame) {
         firstFrame = false;
         // The anchor sample: no segment yet, but replay needs a start point.
         pending.pts.push(penX, penY, strokeW);
       } else {
-        // Speed taper: fast pen = thin line, slow pen = thick. The orbit
-        // alone moves the pen ~9px/frame, so the map starts near that floor.
+        // Speed taper: fast pen = thin line, slow pen = thick. The orbit alone
+        // already moves the pen at roughly speedBase, so the map starts there.
         var dist = Math.hypot(penX - prevX, penY - prevY);
         var speed = frames > 0 ? dist / frames : 0; // px per 60fps frame
-        var target = WIDTH_MAX - (speed - 8) * 0.18;
-        if (target < WIDTH_MIN) target = WIDTH_MIN;
-        if (target > WIDTH_MAX) target = WIDTH_MAX;
+        var target = livePen.wMax - (speed - livePen.speedBase) * livePen.taper;
+        if (target < livePen.wMin) target = livePen.wMin;
+        if (target > livePen.wMax) target = livePen.wMax;
         strokeW += (target - strokeW) * 0.3; // smooth so width never pops
 
         // Record the width the live segment is about to use, so a replayed
