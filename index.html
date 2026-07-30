@@ -44,16 +44,27 @@
   }
   #hint.hidden { opacity: 0; }
   /* Controls: pinned to the bottom edge. Every target >= 40px, and the row
-     wraps at narrow widths (e.g. 375px) so nothing clips or truncates. */
+     wraps at narrow widths (e.g. 375px) so nothing clips or truncates.
+     The bar holds four groups — colours, pens, history, actions. The wide
+     column gap is what separates them: with one uniform gap, twelve identical
+     targets read as one undifferentiated row, and `drift` sitting next to
+     `Clear` reads as another action. */
   #controls {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
     justify-content: center;
-    gap: 8px;
+    gap: 10px 22px;
     padding: 8px;
     background: #1b1b1b;
     border-top: 1px solid #2a2a2a;
+  }
+  /* A group is the unit that wraps: its members never split across two rows. */
+  #controls .group {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: none;
   }
   .swatch {
     width: 40px;
@@ -74,20 +85,26 @@
     border: 1px solid #3a3a3a;
     border-radius: 8px;
     background: #242424;
-    color: #f5efe6;
-    font-size: 0.95rem;
+    color: #e6ded2;
+    /* One type size across the bar. Clear and Save PNG used to be the largest,
+       loudest things on screen, which put the destructive action at the top of
+       a hierarchy it has no business leading. */
+    font-size: 0.85rem;
     cursor: pointer;
     flex: none;
   }
   #controls button.action:active { background: #333; }
+  /* Disabled must read as disabled but stay legible: at 0.35 the two history
+     arrows sat at 2.96:1 against the bar on first load, which made the
+     headline affordance the faintest thing a first-time visitor sees. 0.5
+     measures ~4.5:1, still well under the ~15:1 of an enabled control. */
   #controls button.action:disabled {
-    opacity: 0.35;
+    opacity: 0.5;
     cursor: default;
   }
   /* Pens: same active ring as the swatches, so the two pickers read alike. */
   #controls button.pen {
     padding: 0 10px;
-    font-size: 0.85rem;
     letter-spacing: 0.02em;
   }
   #controls button.pen.active {
@@ -108,11 +125,19 @@
   <div id="hint">press and drag — the pen orbits you</div>
 </div>
 <div id="controls">
-  <!-- Swatches and pens injected by JS from PALETTE/PENS, so that data lives in one place -->
-  <button class="action history" id="undo" type="button" aria-label="undo">&#8630;</button>
-  <button class="action history" id="redo" type="button" aria-label="redo">&#8631;</button>
-  <button class="action" id="clear" type="button">Clear</button>
-  <button class="action" id="save" type="button">Save PNG</button>
+  <!-- Four groups, so a wrap never splits a picker in half and never leaves a
+       pen name sitting beside Clear. Swatches and pens are injected by JS from
+       PALETTE/PENS, so that data lives in one place. -->
+  <div class="group" id="swatches" role="group" aria-label="colour"></div>
+  <div class="group" id="pens" role="group" aria-label="pen"></div>
+  <div class="group" role="group" aria-label="history">
+    <button class="action history" id="undo" type="button" aria-label="undo">&#8630;</button>
+    <button class="action history" id="redo" type="button" aria-label="redo">&#8631;</button>
+  </div>
+  <div class="group">
+    <button class="action" id="clear" type="button">Clear</button>
+    <button class="action" id="save" type="button">Save PNG</button>
+  </div>
 </div>
 <script>
 (function () {
@@ -143,6 +168,8 @@
   var canvas = document.getElementById('canvas');
   var hint = document.getElementById('hint');
   var controls = document.getElementById('controls');
+  var swatchGroup = document.getElementById('swatches');
+  var penGroup = document.getElementById('pens');
   var undoBtn = document.getElementById('undo');
   var redoBtn = document.getElementById('redo');
   var ctx = canvas.getContext('2d');
@@ -151,15 +178,16 @@
   var penId = 'orbit';        // the pen the next stroke will use
   var livePen = PENS[penId];  // the pen the stroke in progress is using
 
-  // Size the backing store for devicePixelRatio; keep ctx in CSS-pixel units.
-  // dpr is capped at 2: past that the backing store grows quadratically for
-  // no visible gain. Sizing a canvas wipes it, so callers follow with redraw().
   // The CSS-pixel size the backing store was last built for. redraw() fills
   // this, not stage.clientWidth/Height: between a resize event and the end of
   // its debounce the element has already changed size while the backing store
   // has not, and filling the new size would leave a strip of the old frame
   // along an edge.
   var viewW = 0, viewH = 0;
+
+  // Size the backing store for devicePixelRatio; keep ctx in CSS-pixel units.
+  // dpr is capped at 2: past that the backing store grows quadratically for
+  // no visible gain. Sizing a canvas wipes it, so callers follow with redraw().
   function sizeCanvas() {
     var dpr = Math.min(window.devicePixelRatio || 1, 2);
     viewW = stage.clientWidth;
@@ -291,7 +319,7 @@
     }
   }
 
-  // Build the 5 swatch buttons ahead of Clear/Save.
+  // Build the 5 swatch buttons into the colour group.
   PALETTE.forEach(function (color, i) {
     var b = document.createElement('button');
     b.type = 'button';
@@ -304,7 +332,7 @@
       if (prev) prev.classList.remove('active');
       b.classList.add('active');
     });
-    controls.insertBefore(b, undoBtn);
+    swatchGroup.appendChild(b);
   });
 
   // Pen picker, same active-state ring as the swatches.
@@ -320,7 +348,7 @@
       if (prev) prev.classList.remove('active');
       b.classList.add('active');
     });
-    controls.insertBefore(b, undoBtn);
+    penGroup.appendChild(b);
   });
 
   // --- Orbit pen physics ---------------------------------------------------
