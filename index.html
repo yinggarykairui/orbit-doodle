@@ -96,8 +96,11 @@
   #controls button.action:active { background: #333; }
   /* Disabled must read as disabled but stay legible: at 0.35 the two history
      arrows sat at 2.96:1 against the bar on first load, which made the
-     headline affordance the faintest thing a first-time visitor sees. 0.5
-     measures ~4.5:1, still well under the ~15:1 of an enabled control. */
+     headline affordance the faintest thing a first-time visitor sees. At 0.5
+     an arrow samples rgb(129,125,119) on the rgb(31,31,31) the button fades
+     to, which is 4.03:1 — clear of the 3:1 floor for a non-text control, and
+     a third of the 11.64:1 an enabled arrow measures, so the two states stay
+     obviously different. Both figures sampled from a 1440x900 render. */
   #controls button.action:disabled {
     opacity: 0.5;
     cursor: default;
