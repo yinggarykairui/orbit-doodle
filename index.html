@@ -213,22 +213,51 @@
     cursor++;
   }
 
-  function undo() { if (cursor > 0) { cursor--; redraw(); } }
-  function redo() { if (cursor < history.length) { cursor++; redraw(); } }
+  // The rule for history actions during a live stroke: **a history action ends
+  // the gesture first.** The live stroke is committed as an ordinary entry, the
+  // rest of the drag draws nothing, and only then does the action apply. So
+  // Clear mid-stroke clears everything including the live stroke and stays one
+  // undo step; undo mid-stroke takes back the stroke being drawn and leaves it
+  // redoable. Without this, `pushEntry` on pen-up would truncate against a
+  // cursor the action had already moved, silently destroying entries.
+  function endStroke() {
+    drawing = false;
+    if (!pending) return;
+    // A stroke that never drew a segment (a click too fast for the physics)
+    // must not leave a ghost entry.
+    if (pending.pts.length >= 6) pushEntry(pending);
+    pending = null;
+  }
+
+  function undo() { endStroke(); if (cursor > 0) cursor--; redraw(); }
+  function redo() { endStroke(); if (cursor < history.length) cursor++; redraw(); }
 
   // Is anything drawn right now? Drives the hint overlay and Clear's no-op.
   function hasInk() {
-    if (pending && pending.pts.length >= 6) return true;
-    return visibleFrom() < cursor;
+    return liveInk() || visibleFrom() < cursor;
   }
 
+  // A live stroke counts as drawn the moment it has a segment: it is what the
+  // user sees, so the chrome must describe it too.
+  function liveInk() {
+    return !!(pending && pending.pts.length >= 6);
+  }
+
+  var HINT_START = 'press and drag — the pen orbits you';
+  // Undone-to-empty is not the same as never-drawn: saying "press and drag"
+  // there implies the drawing is gone for good.
+  var HINT_UNDONE = 'undone to empty — press ↷ to bring it back';
   var hintVisible = true;
   // Buttons and hint always describe the real state — including on first load,
-  // where both arrows start disabled.
+  // where both arrows start disabled, and mid-stroke, where the stroke in
+  // progress is already undoable and has already doomed the redo tail.
   function updateChrome() {
-    undoBtn.disabled = cursor === 0;
-    redoBtn.disabled = cursor === history.length;
+    var live = liveInk();
+    undoBtn.disabled = cursor === 0 && !live;
+    redoBtn.disabled = live || cursor === history.length;
     var show = !hasInk();
+    var text = (show && cursor < history.length) ? HINT_UNDONE : HINT_START;
+    if (hint.textContent !== text) hint.textContent = text;
     if (show !== hintVisible) {
       hintVisible = show;
       hint.classList.toggle('hidden', !show);
@@ -340,15 +369,10 @@
 
   function liftPen(e) {
     if (e && e.pointerId !== undefined && e.pointerId !== activePointerId) return;
-    drawing = false;
     activePointerId = null;
-    // Commit the stroke — unless it never drew a segment (a rapid click that
-    // ended before the physics moved the pen), which must not leave a ghost.
-    if (pending) {
-      if (pending.pts.length >= 6) pushEntry(pending);
-      pending = null;
-      updateChrome();
-    }
+    // Nothing to commit if a history action already ended the stroke.
+    if (pending) { endStroke(); updateChrome(); }
+    drawing = false;
   }
   canvas.addEventListener('pointerup', liftPen);
   canvas.addEventListener('pointercancel', liftPen);
@@ -400,7 +424,9 @@
         ctx.lineTo(penX, penY);
         ctx.stroke();
 
-        if (hintVisible) updateChrome();
+        // The stroke has just become real: it hides the hint, and it is
+        // already undoable. Fires once per stroke, not once per frame.
+        if (pending.pts.length === 6) updateChrome();
       }
     }
     requestAnimationFrame(tick);
@@ -428,6 +454,7 @@
     // Clearing an already-clear canvas would leave a dead undo step to press
     // through, so it appends nothing.
     if (!hasInk()) return;
+    endStroke(); // a stroke in progress is part of what Clear clears
     pushEntry({ kind: 'clear' });
     redraw();
   });
