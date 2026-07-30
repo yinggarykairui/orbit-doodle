@@ -315,9 +315,13 @@
   }
 
   var HINT_START = 'press and drag — the pen orbits you';
-  // Undone-to-empty is not the same as never-drawn: saying "press and drag"
-  // there implies the drawing is gone for good.
+  // An empty canvas that is one press away from a drawing is not the same as
+  // a never-drawn one: saying "press and drag" there implies the work is gone
+  // for good. There are two such states and they are recovered by opposite
+  // buttons, so they get one message each rather than one message that is
+  // wrong half the time.
   var HINT_UNDONE = 'undone to empty — press ↷ to bring it back';
+  var HINT_CLEARED = 'cleared — press ↶ to bring it back';
   var hintVisible = true;
   // Buttons and hint always describe the real state — including on first load,
   // where both arrows start disabled, and mid-stroke, where the stroke in
@@ -327,7 +331,15 @@
     undoBtn.disabled = cursor === 0 && !live;
     redoBtn.disabled = live || cursor === history.length;
     var show = !hasInk();
-    var text = (show && cursor < history.length) ? HINT_UNDONE : HINT_START;
+    // Empty with entries applied can only mean the newest applied entry is a
+    // clear marker (that is what makes the canvas look empty), so Undo is the
+    // way back. Empty with nothing applied and a redo tail waiting is the
+    // undone-to-empty case, and Redo is the way back.
+    var text = HINT_START;
+    if (show) {
+      if (cursor > 0) text = HINT_CLEARED;
+      else if (history.length > 0) text = HINT_UNDONE;
+    }
     if (hint.textContent !== text) hint.textContent = text;
     if (show !== hintVisible) {
       hintVisible = show;
