@@ -109,16 +109,57 @@
   var strokeColor = PALETTE[0];
 
   // Size the backing store for devicePixelRatio; keep ctx in CSS-pixel units.
-  // Background is painted onto the canvas itself so PNG exports are WYSIWYG.
+  // dpr is capped at 2: past that the backing store grows quadratically for
+  // no visible gain. Sizing a canvas wipes it, so callers follow with redraw().
   function sizeCanvas() {
-    var dpr = window.devicePixelRatio || 1;
-    var w = stage.clientWidth;
-    var h = stage.clientHeight;
-    canvas.width = Math.round(w * dpr);
-    canvas.height = Math.round(h * dpr);
+    var dpr = Math.min(window.devicePixelRatio || 1, 2);
+    canvas.width = Math.round(stage.clientWidth * dpr);
+    canvas.height = Math.round(stage.clientHeight * dpr);
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+
+  // --- History: the source of truth ----------------------------------------
+  // The canvas is a *view*. What the drawing actually is lives here, as a list
+  // of strokes, each holding the pen path the physics emitted:
+  //
+  //   { pen: 'orbit', color: '#f5efe6', pts: [x, y, w, x, y, w, ...] }
+  //
+  // Recording the emitted path (rather than the raw pointer input) makes
+  // replay exact — re-simulating would depend on frame timing, so undo, redo
+  // and resize would each redraw a slightly different picture. Cost is ~24
+  // bytes per sample, a few KB per stroke; a full-canvas bitmap snapshot at
+  // dpr 2 would be ~10 MB apiece, which is why history holds no bitmaps.
+  var history = [];
+  // The stroke being drawn right now. Live drawing still paints
+  // segment-by-segment for latency; this is committed to history on pen-up.
+  var pending = null;
+
+  // The ONLY code path that bulk-paints the canvas. Background first (it is
+  // painted onto the canvas itself so PNG exports are WYSIWYG), then replay.
+  function redraw() {
     ctx.fillStyle = BG;
-    ctx.fillRect(0, 0, w, h);
+    ctx.fillRect(0, 0, stage.clientWidth, stage.clientHeight);
+    for (var i = 0; i < history.length; i++) replayStroke(history[i]);
+    if (pending) replayStroke(pending);
+  }
+
+  function replayStroke(s) {
+    var p = s.pts;
+    if (p.length < 6) return; // a single sample has no segment to draw
+    ctx.strokeStyle = s.color;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    // One path per segment, exactly as the live loop drew it. Batching runs of
+    // equal width would be faster, but a batched polyline composites its
+    // overlaps once where the live loop composites them twice, so a replayed
+    // stroke would not be pixel-identical to the drawn one. It is fast enough.
+    for (var i = 3; i < p.length; i += 3) {
+      ctx.lineWidth = p[i + 2];
+      ctx.beginPath();
+      ctx.moveTo(p[i - 3], p[i - 2]);
+      ctx.lineTo(p[i], p[i + 1]);
+      ctx.stroke();
+    }
   }
 
   // Build the 5 swatch buttons ahead of Clear/Save.
@@ -178,7 +219,9 @@
     penX = centerX + ORBIT_RADIUS * Math.cos(angle);
     penY = centerY + ORBIT_RADIUS * Math.sin(angle);
     firstFrame = true;
+    strokeW = WIDTH_MAX; // each stroke tapers from its own start, not the last one's end
     drawing = true;
+    pending = { pen: 'orbit', color: strokeColor, pts: [] };
   });
 
   canvas.addEventListener('pointermove', function (e) {
@@ -192,6 +235,12 @@
     if (e && e.pointerId !== undefined && e.pointerId !== activePointerId) return;
     drawing = false;
     activePointerId = null;
+    // Commit the stroke — unless it never drew a segment (a rapid click that
+    // ended before the physics moved the pen), which must not leave a ghost.
+    if (pending) {
+      if (pending.pts.length >= 6) history.push(pending);
+      pending = null;
+    }
   }
   canvas.addEventListener('pointerup', liftPen);
   canvas.addEventListener('pointercancel', liftPen);
@@ -218,6 +267,8 @@
 
       if (firstFrame) {
         firstFrame = false;
+        // The anchor sample: no segment yet, but replay needs a start point.
+        pending.pts.push(penX, penY, strokeW);
       } else {
         // Speed taper: fast pen = thin line, slow pen = thick. The orbit
         // alone moves the pen ~9px/frame, so the map starts near that floor.
@@ -228,7 +279,11 @@
         if (target > WIDTH_MAX) target = WIDTH_MAX;
         strokeW += (target - strokeW) * 0.3; // smooth so width never pops
 
-        ctx.strokeStyle = strokeColor;
+        // Record the width the live segment is about to use, so a replayed
+        // stroke is pixel-identical to the one that was drawn.
+        pending.pts.push(penX, penY, strokeW);
+
+        ctx.strokeStyle = pending.color;
         ctx.lineWidth = strokeW;
         ctx.lineCap = 'round';
         ctx.lineJoin = 'round';
@@ -248,14 +303,8 @@
 
   // --- Clear / Save --------------------------------------------------------
   document.getElementById('clear').addEventListener('click', function () {
-    // No confirmation, no history: repaint the background and move on.
-    // Paint the full backing store in device pixels so Clear is complete
-    // even while a debounced resize is still pending.
-    ctx.save();
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.fillStyle = BG;
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.restore();
+    history.length = 0;
+    redraw();
   });
 
   document.getElementById('save').addEventListener('click', function () {
@@ -270,27 +319,37 @@
     });
   });
 
-  // --- Resize survival -----------------------------------------------------
-  // Resizing a canvas wipes it, so: snapshot to an offscreen canvas, resize,
-  // repaint the background, then draw the snapshot back at top-left. The
-  // snapshot is copied at its original CSS size (old dpr divided out) so
-  // artwork keeps its scale across dpr changes (e.g. dragging between screens).
+  // --- Resize --------------------------------------------------------------
+  // Resizing wipes the canvas, and history is the source of truth, so resize
+  // is just: re-size, replay. No snapshot to stretch and no second, disagreeing
+  // record of the picture. Strokes a narrowed window pushes off-canvas survive
+  // in history and reappear when it widens again.
   var resizeTimer = null;
-  window.addEventListener('resize', function () {
+  function onResize() {
     clearTimeout(resizeTimer);
     resizeTimer = setTimeout(function () {
-      if (canvas.width === 0 || canvas.height === 0) { sizeCanvas(); return; }
-      var oldDpr = ctx.getTransform().a || 1;
-      var snap = document.createElement('canvas');
-      snap.width = canvas.width;
-      snap.height = canvas.height;
-      snap.getContext('2d').drawImage(canvas, 0, 0);
       sizeCanvas();
-      ctx.drawImage(snap, 0, 0, snap.width / oldDpr, snap.height / oldDpr);
+      redraw();
     }, 100);
-  });
+  }
+  window.addEventListener('resize', onResize);
+  // A dpr change (dragging between screens, browser zoom) does not always fire
+  // resize; watch the resolution directly. matchMedia listeners re-arm because
+  // the query itself has to be rebuilt around the new dpr.
+  (function watchDpr() {
+    var mq = window.matchMedia('(resolution: ' + window.devicePixelRatio + 'dppx)');
+    function onChange() {
+      if (mq.removeEventListener) mq.removeEventListener('change', onChange);
+      else if (mq.removeListener) mq.removeListener(onChange);
+      onResize();
+      watchDpr();
+    }
+    if (mq.addEventListener) mq.addEventListener('change', onChange);
+    else if (mq.addListener) mq.addListener(onChange);
+  })();
 
   sizeCanvas();
+  redraw();
   requestAnimationFrame(tick);
 })();
 </script>
