@@ -154,10 +154,18 @@
   // Size the backing store for devicePixelRatio; keep ctx in CSS-pixel units.
   // dpr is capped at 2: past that the backing store grows quadratically for
   // no visible gain. Sizing a canvas wipes it, so callers follow with redraw().
+  // The CSS-pixel size the backing store was last built for. redraw() fills
+  // this, not stage.clientWidth/Height: between a resize event and the end of
+  // its debounce the element has already changed size while the backing store
+  // has not, and filling the new size would leave a strip of the old frame
+  // along an edge.
+  var viewW = 0, viewH = 0;
   function sizeCanvas() {
     var dpr = Math.min(window.devicePixelRatio || 1, 2);
-    canvas.width = Math.round(stage.clientWidth * dpr);
-    canvas.height = Math.round(stage.clientHeight * dpr);
+    viewW = stage.clientWidth;
+    viewH = stage.clientHeight;
+    canvas.width = Math.round(viewW * dpr);
+    canvas.height = Math.round(viewH * dpr);
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   }
 
@@ -190,7 +198,7 @@
   // painted onto the canvas itself so PNG exports are WYSIWYG), then replay.
   function redraw() {
     ctx.fillStyle = BG;
-    ctx.fillRect(0, 0, stage.clientWidth, stage.clientHeight);
+    ctx.fillRect(0, 0, viewW, viewH);
     for (var i = visibleFrom(); i < cursor; i++) replayStroke(history[i]);
     if (pending) replayStroke(pending);
     updateChrome();
@@ -467,7 +475,10 @@
       a.href = url;
       a.download = 'orbit-doodle.png';
       a.click();
-      URL.revokeObjectURL(url);
+      // Revoking in the same task can beat the download on slower engines,
+      // which then saves nothing. One minute is far longer than any browser
+      // needs to pick the blob up, and the blob is freed either way.
+      setTimeout(function () { URL.revokeObjectURL(url); }, 60000);
     });
   });
 
