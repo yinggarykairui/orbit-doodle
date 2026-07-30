@@ -134,9 +134,11 @@
 
   // --- History: the source of truth ----------------------------------------
   // The canvas is a *view*. What the drawing actually is lives here, as a list
-  // of strokes, each holding the pen path the physics emitted:
+  // of entries. An entry is either a stroke, holding the pen path the physics
+  // emitted, or a clear marker:
   //
-  //   { pen: 'orbit', color: '#f5efe6', pts: [x, y, w, x, y, w, ...] }
+  //   { kind: 'stroke', pen: 'orbit', color: '#f5efe6', pts: [x, y, w, ...] }
+  //   { kind: 'clear' }
   //
   // Recording the emitted path (rather than the raw pointer input) makes
   // replay exact — re-simulating would depend on frame timing, so undo, redo
@@ -160,9 +162,19 @@
   function redraw() {
     ctx.fillStyle = BG;
     ctx.fillRect(0, 0, stage.clientWidth, stage.clientHeight);
-    for (var i = 0; i < cursor; i++) replayStroke(history[i]);
+    for (var i = visibleFrom(); i < cursor; i++) replayStroke(history[i]);
     if (pending) replayStroke(pending);
     updateChrome();
+  }
+
+  // Where replay starts: everything before the most recent applied clear
+  // marker is hidden by it. The entries are still there, which is what makes
+  // Clear a single undoable step rather than a demolition.
+  function visibleFrom() {
+    for (var i = cursor - 1; i >= 0; i--) {
+      if (history[i].kind === 'clear') return i + 1;
+    }
+    return 0;
   }
 
   // Appending discards the redo tail: history is linear, not a tree.
@@ -175,10 +187,10 @@
   function undo() { if (cursor > 0) { cursor--; redraw(); } }
   function redo() { if (cursor < history.length) { cursor++; redraw(); } }
 
-  // Is anything drawn right now? Drives the hint overlay.
+  // Is anything drawn right now? Drives the hint overlay and Clear's no-op.
   function hasInk() {
     if (pending && pending.pts.length >= 6) return true;
-    return cursor > 0;
+    return visibleFrom() < cursor;
   }
 
   var hintVisible = true;
@@ -196,7 +208,7 @@
 
   function replayStroke(s) {
     var p = s.pts;
-    if (p.length < 6) return; // a single sample has no segment to draw
+    if (!p || p.length < 6) return; // clear markers and single samples draw nothing
     ctx.strokeStyle = s.color;
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
@@ -271,7 +283,7 @@
     firstFrame = true;
     strokeW = WIDTH_MAX; // each stroke tapers from its own start, not the last one's end
     drawing = true;
-    pending = { pen: 'orbit', color: strokeColor, pts: [] };
+    pending = { kind: 'stroke', pen: 'orbit', color: strokeColor, pts: [] };
   });
 
   canvas.addEventListener('pointermove', function (e) {
@@ -368,8 +380,10 @@
 
   // --- Clear / Save --------------------------------------------------------
   document.getElementById('clear').addEventListener('click', function () {
-    history.length = 0;
-    cursor = 0;
+    // Clearing an already-clear canvas would leave a dead undo step to press
+    // through, so it appends nothing.
+    if (!hasInk()) return;
+    pushEntry({ kind: 'clear' });
     redraw();
   });
 
