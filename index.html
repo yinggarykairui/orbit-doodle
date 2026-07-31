@@ -304,6 +304,11 @@
   var redoBtn = document.getElementById('redo');
   var clearBtn = document.getElementById('clear');
   var saveBtn = document.getElementById('save');
+  // Captured here, not next to ackSave(): updateChrome() restores this label
+  // whenever Save goes disabled, and updateChrome() runs from the first
+  // redraw().
+  var SAVE_LABEL = saveBtn.textContent;
+  saveBtn.setAttribute('aria-label', SAVE_LABEL);
   var ctx = canvas.getContext('2d');
 
   var strokeColor = PALETTE[0].hex;
@@ -830,9 +835,8 @@
   // stays "Save PNG" and the live region announces the change without the
   // control renaming itself. Before that, a screen-reader user who landed on
   // the button inside the 1.6 s window heard "Saved ✓, button" — a name for an
-  // action, not for the thing the button does.
-  var SAVE_LABEL = saveBtn.textContent;
-  saveBtn.setAttribute('aria-label', SAVE_LABEL);
+  // action, not for the thing the button does. `SAVE_LABEL` and the label are
+  // set where `saveBtn` is looked up, so both exist before the first redraw.
   var saveAckTimer = null;
   function clearSaveAck() {
     clearTimeout(saveAckTimer);
