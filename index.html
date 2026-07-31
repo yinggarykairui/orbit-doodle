@@ -303,6 +303,7 @@
   // cursor the action had already moved, silently destroying entries.
   function endStroke() {
     drawing = false;
+    settling = false;
     if (!pending) return;
     // A stroke that never drew a segment (a click too fast for the physics)
     // must not leave a ghost entry.
@@ -416,6 +417,17 @@
   var FRAME = 1000 / 60;
 
   var drawing = false;
+  // Pointer released, physics still running. The orbit center trails the hand
+  // by roughly `speed * (1 - chase) / chase` px — 19 frames of travel for
+  // `drift`, which is a third of a desktop canvas at a brisk drag. Freezing the
+  // loop on pointerup left all of that lag as ink that never got drawn, so the
+  // stroke ended far behind where it was released. Instead the release point
+  // becomes the target and the loop keeps integrating toward it, appending to
+  // the *same* pending stroke, so undo/redo/replay see one entry with its tail.
+  var settling = false;
+  var settleMs = 0;
+  var SETTLE_EPS = 0.5;   // px: close enough that the remaining lag is invisible
+  var SETTLE_MS = 900;    // and a hard cap, so no chase value can spin forever
   var activePointerId = null;
   var pointerX = 0, pointerY = 0;  // last-known pointer position (CSS px)
   var centerX = 0, centerY = 0;    // orbit center (chases pointer)
@@ -454,7 +466,13 @@
   canvas.addEventListener('pointerdown', function (e) {
     if (e.button !== 0) return; // primary button only (touch/pen report 0)
     if (activePointerIsLive()) return; // first active pointer wins
-    if (activePointerId !== null) liftPen(); // stale claim: commit it and take over
+    // A stale claim, or a tail still settling from the last release, is
+    // committed here and the new gesture takes over: settling is interruptible.
+    if (activePointerId !== null || settling) {
+      activePointerId = null;
+      endStroke();
+      updateChrome();
+    }
     activePointerId = e.pointerId;
     tryCapture(e.pointerId);
     var p = pointerPos(e);
@@ -487,9 +505,22 @@
   function liftPen(e) {
     if (e && e.pointerId !== undefined && e.pointerId !== activePointerId) return;
     activePointerId = null;
-    // Nothing to commit if a history action already ended the stroke.
-    if (pending) { endStroke(); updateChrome(); }
     drawing = false;
+    // Nothing to commit if a history action already ended the stroke.
+    if (!pending) { settling = false; return; }
+    // A release hands the stroke to the settle phase. An interruption
+    // (pointercancel, blur) is not a release, and a tap too short to have
+    // drawn a segment has no tail to finish — both end flat.
+    if (e && e.type === 'pointerup' && pending.pts.length >= 6) {
+      var p = pointerPos(e);
+      pointerX = p.x;
+      pointerY = p.y;
+      settling = true;
+      settleMs = 0;
+      return;
+    }
+    endStroke();
+    updateChrome();
   }
   canvas.addEventListener('pointerup', liftPen);
   canvas.addEventListener('pointercancel', liftPen);
@@ -503,7 +534,7 @@
     lastTime = now;
     var frames = dt / FRAME;
 
-    if (drawing) {
+    if (drawing || settling) {
       // Frame-rate-normalized lerp: equivalent to pen.chase per frame at 60fps.
       var alpha = 1 - Math.pow(1 - livePen.chase, frames);
       centerX += (pointerX - centerX) * alpha;
@@ -544,6 +575,18 @@
         // The stroke has just become real: it hides the hint, and it is
         // already undoable. Fires once per stroke, not once per frame.
         if (pending.pts.length === 6) updateChrome();
+      }
+    }
+
+    // The tail is done when the center has caught the release point, or when
+    // the cap expires — checked after this frame's integration so the last
+    // segment is always recorded.
+    if (settling) {
+      settleMs += dt;
+      if (settleMs >= SETTLE_MS ||
+          Math.hypot(pointerX - centerX, pointerY - centerY) <= SETTLE_EPS) {
+        endStroke();
+        updateChrome();
       }
     }
     requestAnimationFrame(tick);
