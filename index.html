@@ -512,7 +512,20 @@
     // One path per segment, exactly as the live loop drew it. Batching runs of
     // equal width would be faster, but a batched polyline composites its
     // overlaps once where the live loop composites them twice, so a replayed
-    // stroke would not be pixel-identical to the drawn one. It is fast enough.
+    // stroke would not be pixel-identical to the drawn one — and
+    // history-as-paths is only sound while replay is exact.
+    //
+    // That is a real cost, and it does not stay small. A redraw is every
+    // segment since the last clear, so undo scales with how much has been
+    // drawn, not with how many undo steps deep you are. Measured at 1440x900
+    // with `drift`, one-second drags, median of 5, with the canvas flushed
+    // inside the timing: 25s of drawing costs 17.7ms per undo, 50s 39.6ms,
+    // 100s 71.7ms, 150s 105.5ms — linear, ~0.70ms per second of pen-down. A
+    // resize pays the same replay after its 100ms debounce: 225ms end to end
+    // at 150s. So past about a minute and a half of drawing an undo stops
+    // being a frame's work. It is not "fast enough" at session scale; it is
+    // fast enough for a sitting, and the ceiling is PROJECT.md's history
+    // thread, not something to fix by making replay approximate.
     for (var i = 3; i < p.length; i += 3) {
       ctx.lineWidth = p[i + 2];
       ctx.beginPath();
