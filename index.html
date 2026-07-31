@@ -438,9 +438,21 @@
   // Strokes exist, but not one of them would land on a canvas this size. No
   // history button can help — only a wider window — so neither hint about ↶/↷
   // would be true.
+  //
+  // It asks that question of the *applied, un-cleared* entries only —
+  // `visibleFrom() … cursor`, the same span `redraw()` paints and `hasInk()`
+  // tests. Walking the whole list instead counted strokes the canvas is not
+  // even trying to show: undone ones, and ones behind an applied clear marker.
+  // Those made the window the culprit for an emptiness Redo or Undo owned, and
+  // this branch is tested first, so it won. Measured at 1440x900: draw near the
+  // right edge, Clear, narrow to 500 px and the hint read "off-canvas — widen
+  // the window"; widening back to 1440 left the canvas at 0 inked pixels and
+  // flipped the hint to "cleared". Undo in place of Clear was worse — the hint
+  // pointed at a window resize while ↶ was disabled and ↷, the button that
+  // actually brings the stroke back, sat enabled beside it.
   function allInkOffCanvas() {
     var strokes = 0;
-    for (var i = 0; i < history.length; i++) {
+    for (var i = visibleFrom(); i < cursor; i++) {
       if (history[i].kind !== 'stroke') continue;
       strokes++;
       if (strokeVisible(history[i])) return false;
@@ -490,7 +502,9 @@
     // clear marker (that is what makes the canvas look empty), so Undo is the
     // way back. Empty with nothing applied and a redo tail waiting is the
     // undone-to-empty case, and Redo is the way back. Neither is true if the
-    // art is simply outside this window, so that case is tested first.
+    // art the canvas is *currently applying* is simply outside this window, so
+    // that case is tested first — and it only ever answers for that same span,
+    // or it would pre-empt the two states it is meant to defer to.
     var text = HINT_START;
     if (show) {
       if (allInkOffCanvas()) text = HINT_OFFCANVAS;
