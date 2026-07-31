@@ -66,6 +66,15 @@
     gap: 8px;
     flex: none;
   }
+  /* A control is a target for a finger, not a paragraph: a long-press-drag that
+     starts on a pen label used to raise the selection callout instead of doing
+     nothing, and double-tapping the arrows used to zoom. */
+  #controls button {
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+    touch-action: manipulation;
+  }
   .swatch {
     width: 40px;
     height: 40px;
@@ -120,6 +129,33 @@
     font-size: 1.35rem;
     line-height: 1;
   }
+  /* Hover. The bar had no :hover rule at all — twelve targets and not one of
+     them moved a pixel under the pointer, so nothing in it looked pressable.
+     One step up the same greys the bar is already built from; a swatch gets a
+     faint ring, but only while it is not the chosen one, so hover can never
+     dim the selection it is sitting on. Gated on (hover: hover) so a touch
+     device does not leave a control stuck in the hovered state after a tap. */
+  @media (hover: hover) {
+    #controls button.action:hover:not(:disabled) {
+      background: #2f2f2f;
+      border-color: #4f4f4f;
+    }
+    #controls button.pen.active:hover { background: #3d3d3d; }
+    .swatch:not(.active):hover { border-color: rgba(245, 239, 230, 0.5); }
+    /* The chosen swatch cannot take a brighter ring than it already has, so it
+       answers the pointer with a halo outside itself instead. */
+    .swatch.active:hover {
+      box-shadow: 0 0 0 2px #111 inset, 0 0 0 3px rgba(245, 239, 230, 0.3);
+    }
+  }
+  /* Focus is not selection. Selected is a tight warm-white ring; focus is an
+     offset sky-blue outline (the palette's own #6bb8ff, 6.4:1 on the bar), so
+     a tabbed-to swatch no longer looks like the chosen one and both states can
+     be read at once when they land on the same button. */
+  #controls button:focus-visible {
+    outline: 2px solid #6bb8ff;
+    outline-offset: 3px;
+  }
 </style>
 </head>
 <body>
@@ -147,8 +183,16 @@
   'use strict';
 
   var BG = '#111';
-  // warm white, coral, gold, mint, sky blue
-  var PALETTE = ['#f5efe6', '#ff6b6b', '#ffc94d', '#6be5b0', '#6bb8ff'];
+  // Colour data in one place: the hex the pen draws with and the name the
+  // swatch answers to. "color 3" tells a screen-reader user nothing about
+  // which of five identical circles they are on.
+  var PALETTE = [
+    { hex: '#f5efe6', name: 'warm white' },
+    { hex: '#ff6b6b', name: 'coral' },
+    { hex: '#ffc94d', name: 'gold' },
+    { hex: '#6be5b0', name: 'mint' },
+    { hex: '#6bb8ff', name: 'sky blue' }
+  ];
 
   // A pen is nothing but a parameter set for the orbit physics below:
   //   chase     center lerp factor per 60fps frame — low is laggier
@@ -232,7 +276,6 @@
   var stage = document.getElementById('stage');
   var canvas = document.getElementById('canvas');
   var hint = document.getElementById('hint');
-  var controls = document.getElementById('controls');
   var swatchGroup = document.getElementById('swatches');
   var penGroup = document.getElementById('pens');
   var undoBtn = document.getElementById('undo');
@@ -241,7 +284,7 @@
   var saveBtn = document.getElementById('save');
   var ctx = canvas.getContext('2d');
 
-  var strokeColor = PALETTE[0];
+  var strokeColor = PALETTE[0].hex;
   var penId = 'orbit';        // the pen the next stroke will use
   var livePen = PENS[penId];  // the pen the stroke in progress is using (scaled)
 
@@ -464,37 +507,47 @@
     }
   }
 
+  // Both pickers are toggle groups, so exactly one member is pressed at a time.
+  // The class draws the ring and aria-pressed says the same thing out loud;
+  // setting them from one place is what keeps them from disagreeing.
+  function select(group, btn) {
+    var all = group.querySelectorAll('button');
+    for (var i = 0; i < all.length; i++) {
+      var on = all[i] === btn;
+      all[i].classList.toggle('active', on);
+      all[i].setAttribute('aria-pressed', on ? 'true' : 'false');
+    }
+  }
+
   // Build the 5 swatch buttons into the colour group.
-  PALETTE.forEach(function (color, i) {
+  PALETTE.forEach(function (color) {
     var b = document.createElement('button');
     b.type = 'button';
-    b.className = 'swatch' + (i === 0 ? ' active' : '');
-    b.style.background = color;
-    b.setAttribute('aria-label', 'color ' + (i + 1));
+    b.className = 'swatch';
+    b.style.background = color.hex;
+    b.setAttribute('aria-label', color.name);
     b.addEventListener('click', function () {
-      strokeColor = color;
-      var prev = controls.querySelector('.swatch.active');
-      if (prev) prev.classList.remove('active');
-      b.classList.add('active');
+      strokeColor = color.hex;
+      select(swatchGroup, b);
     });
     swatchGroup.appendChild(b);
   });
+  select(swatchGroup, swatchGroup.firstChild);
 
   // Pen picker, same active-state ring as the swatches.
   PEN_ORDER.forEach(function (id) {
     var b = document.createElement('button');
     b.type = 'button';
-    b.className = 'action pen' + (id === penId ? ' active' : '');
+    b.className = 'action pen';
     b.textContent = id;
     b.setAttribute('aria-label', 'pen ' + id);
     b.addEventListener('click', function () {
       penId = id;
-      var prev = controls.querySelector('.pen.active');
-      if (prev) prev.classList.remove('active');
-      b.classList.add('active');
+      select(penGroup, b);
     });
     penGroup.appendChild(b);
   });
+  select(penGroup, penGroup.children[PEN_ORDER.indexOf(penId)]);
 
   // --- Orbit pen physics ---------------------------------------------------
   // The visible pen circles an invisible center; the center chases the
