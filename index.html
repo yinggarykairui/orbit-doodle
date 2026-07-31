@@ -292,7 +292,16 @@
   // painted onto the canvas itself so PNG exports are WYSIWYG), then replay.
   function redraw() {
     ctx.fillStyle = BG;
-    ctx.fillRect(0, 0, viewW, viewH);
+    // Fill in device pixels, not CSS pixels. The backing store is
+    // Math.round(view * dpr), so at a fractional dpr it is up to half a device
+    // pixel wider or taller than viewW/viewH cover: at dpr 1.5 on a 375px-wide
+    // phone the store is 563px and the CSS-unit fill reached 562.5, leaving the
+    // last column half-transparent in the exported PNG (measured RGBA
+    // 16,16,16,128 at x=562). Painting the store itself cannot miss an edge.
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.restore();
     for (var i = visibleFrom(); i < cursor; i++) replayStroke(history[i]);
     if (pending) replayStroke(pending);
     updateChrome();
