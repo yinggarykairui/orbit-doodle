@@ -98,6 +98,14 @@ Increment 2 changed the shape as follows, and this is what ships today:
 - **Live drawing stays incremental.** The in-progress stroke is still stroked
   segment-by-segment as it is drawn (no replay per frame); its samples are
   appended to a pending stroke that is committed to history on pointer-up.
+- **A release is not the end of the stroke** (evening polish, day 006). The
+  orbit center trails the pointer, so stopping the physics at `pointerup` threw
+  away every pixel of that lag — `drift` ended 419 px behind a 1000 px drag.
+  Pointer-up now makes the release point the target and keeps integrating into
+  the *same* pending stroke until the center is within 0.5 px or a 900 ms cap
+  expires; the tail is part of the one history entry, so undo, redo and replay
+  stay faithful, and a new pointer-down commits it and takes over. An
+  interruption (`pointercancel`, blur) is not a release and still ends flat.
 - **A pen is a parameter set.** `PENS = { orbit, coil, drift }`, each with
   chase, angular velocity, orbit radius, and width min/max. The live loop
   reads the active pen; a stroke carries its pen id so replay reads the same
@@ -107,6 +115,15 @@ Increment 2 changed the shape as follows, and this is what ships today:
   existed only so `drawImage` could not throw on a zero-sized snapshot, and
   `fillRect`/`stroke` at zero size are no-ops (confirmed under a rapid-resize
   storm).
+- **The chrome asks the canvas, not the history** (evening polish, day 006).
+  `hasInk()` used to count applied entries, which is a different question from
+  "is anything on screen": a narrowed window pushes art off the edge without
+  losing it, so the canvas could be visibly empty while the bar insisted it was
+  not. It now tests whether any stroke sample lands inside `viewW × viewH`, a
+  fourth hint names that state, and the four action buttons run off one
+  `updateChrome`: the arrows follow the cursor, Clear and Save PNG follow
+  visible ink (an enabled Clear with nothing to clear was a silent no-op, and
+  Save PNG exported a blank rectangle).
 
 ## Done-map
 
@@ -141,24 +158,73 @@ Increment 2 changed the shape as follows, and this is what ships today:
 - [x] README made true (already rewritten README-first), screenshot refreshed
       from the running build
 
+**Evening polish (day 006)** — defects closed against the shipped increment,
+no new scope. Every line here was verified by driving the build, not by
+reading the diff:
+
+- [x] Provenance footer says day 006 (it said 004)
+- [x] A released stroke finishes its tail instead of freezing behind the hand:
+      `drift` went from 419 px short of a 1000 px drag to 5 px past it, `orbit`
+      194 → past, `coil` 69 → past; one history entry, interruptible
+- [x] Pen scale measures the canvas, plus a radius cap of a twelfth of its
+      short edge; phone edge-loss 38% → 20%; `orbit`/`coil` 0-pixel diff
+- [x] `:hover` on all twelve controls (0 px → 176–3698 px each) and a
+      `:focus-visible` outline distinct from the selected ring
+- [x] `aria-pressed` on both toggle groups, set from the same place as the
+      ring; swatches labelled by colour name, not `color 3`
+- [x] Clear and Save PNG disable with the arrows, on visible ink
+- [x] Save PNG acknowledges in-page (label + `aria-live`)
+- [x] Chrome tells the truth when the art is off-canvas
+- [x] Background fills the backing store, so a fractional dpr no longer exports
+      a half-transparent edge column (measured RGBA 16,16,16,128 → none)
+- [x] Controls opt out of text selection and the touch callout
+- [x] `<head>`: description, theme-color, Open Graph/Twitter, inline SVG
+      favicon; load is still exactly 1 request
+- [x] README's "What it does" run-on split, still 5 sentences
+- [x] The `replayStroke` comment states the measured cost instead of claiming
+      it is fast enough
+
 ## Open threads
 
-- **Viewport-scaled orbit radius.** Not in the increment spec; added during the
-  fix cycle because `drift`'s 95 px radius amputated strokes drawn within ~95 px
-  of any edge on a 375 px canvas — the flagship pen silently ate the line. Pen
-  radius, speed base and taper now scale by `min(1, shortViewportEdge / 640)`,
-  so `orbit` is bit-for-bit the day-004 pen at any short edge ≥ 640 px
-  (measured: 1440x900 and 1440x700 both 1.000) and shrinks below it
-  (1440x620 0.969, 1280x600 0.938, 375x667 0.586). PROJECT.md's
-  "`orbit` (unchanged constants)" holds above the threshold only. Whether a
-  short desktop window should scale at all — it measures the viewport, control
-  bar included, not the canvas — is the open question.
+- **Canvas-scaled orbit radius, and the edge loss it does not remove.** Not in
+  the increment spec; added during the fix cycle because `drift`'s 95 px radius
+  amputated strokes drawn near any edge of a 375 px canvas — the flagship pen
+  silently ate the line. The scale first measured the *viewport*, which counts
+  the control bar as drawing surface; the evening polish moved it to the canvas
+  (`viewW`/`viewH`) and added a second limit, a radius cap of a twelfth of the
+  canvas's short edge, so no pen's loop is wider than a sixth of it. `orbit` and
+  `coil` are still bit-for-bit the day-004 pens wherever the scale is 1 —
+  verified as a 0-pixel diff of the drag phase against the pre-polish build at
+  1440x900, 1440x700 and 1024x768 — but the cap does bind on `drift` at desktop
+  size (70.2 px rather than 95 px at 1440x900), because a 190 px loop clips
+  against a desktop edge too, just less often. **`screenshot.png` predates that
+  and shows the wider `drift`; a later pass owns recapturing it.**
+  What is *not* closed: an orbiting pen drawn close to an edge still loses the
+  arc that falls outside. On a 375x510 canvas, the same stroke drawn 25 px from
+  the top now loses 20% of its ink against one drawn at centre, down from 38%,
+  and the residual is inherent — driving it to zero means either a radius near
+  25 px (which makes `drift` indistinguishable from `orbit` on a phone) or
+  clamping the orbit center away from the edges, which would stop the ink
+  landing where the finger points. Both are design calls for an owner issue,
+  not a fix cycle.
 
-- **Unbounded history.** Nothing caps the entry list. A marathon session grows
-  memory and slows replay linearly. The increment ships with a measured bound
-  (undo after 50 strokes redraws well under 100 ms); a cap or a bake-the-tail
-  strategy is a later call, and it interacts with undo depth, so it wants its
-  own issue.
+- **Unbounded history, and replay is not free.** Nothing caps the entry list,
+  and a redraw is every segment drawn since the last clear — so undo scales
+  with how much has been drawn, not with how deep the undo stack is. Measured
+  at 1440x900 with `drift`, one-second drags, median of 5, canvas flushed
+  inside the timing: 25 s of pen-down costs 17.7 ms per undo, 50 s 39.6 ms,
+  100 s 71.7 ms, 150 s 105.5 ms — linear, ≈0.70 ms per second of pen-down. A
+  resize pays the same replay after its 100 ms debounce: 225 ms end to end at
+  150 s. So an undo stops being a frame's work at around a minute and a half of
+  continuous drawing, and the earlier "well under 100 ms after 50 strokes" note
+  was true only for the stroke lengths it was measured with. The settle tail
+  added by the evening polish makes each released stroke record more samples,
+  which moves a session up this curve faster; per second of recorded pen-down
+  the rate is unchanged. Not fixed here: the batched-polyline speedup composites
+  stroke overlaps once where the live loop composites them twice, so it would
+  break the pixel-identity that history-as-paths rests on, and bitmap snapshots
+  are fenced out. A depth cap or a bake-the-tail strategy is a later call, it
+  interacts with undo depth, and it wants its own issue.
 - **Resize is lossy in one direction only.** Replay preserves strokes that a
   narrowed window pushes off-canvas, so widening restores them; it does not
   reflow or rescale artwork to the new aspect. Reflow would change what the
