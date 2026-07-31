@@ -408,8 +408,9 @@
   // Counting history entries is not the same question: replay preserves art a
   // narrowed window pushed off the edge (widening brings it back), so a canvas
   // can be visibly empty with entries applied. Chrome that counts entries then
-  // insists there is something there. Samples are a few px apart, so testing
-  // the samples rather than the segments between them cannot miss a crossing.
+  // insists there is something there. Testing the samples rather than the
+  // segments between them is enough: samples are single-digit px apart at
+  // worst, so no segment steps over a whole canvas.
   function onCanvas(x, y, w) {
     var r = w / 2;
     return x + r >= 0 && x - r <= viewW && y + r >= 0 && y - r <= viewH;
@@ -560,7 +561,7 @@
     });
     swatchGroup.appendChild(b);
   });
-  select(swatchGroup, swatchGroup.firstChild);
+  select(swatchGroup, swatchGroup.children[0]);
 
   // Pen picker, same active-state ring as the swatches.
   PEN_ORDER.forEach(function (id) {
