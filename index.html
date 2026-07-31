@@ -168,43 +168,64 @@
   var PEN_ORDER = ['orbit', 'coil', 'drift'];
 
   // The pen constants above are sized for a desktop window. On a phone they are
-  // not: `drift`'s 95px radius is a 190px loop on a 375px canvas, so every
-  // stroke drawn within 95px of an edge gets its loop amputated with no signal
-  // that anything was lost. So the orbit is scaled against the short edge of
-  // the viewport — `innerWidth`/`innerHeight`, which counts the control bar,
-  // not the canvas alone — below a reference edge of 640px.
+  // not: `drift`'s 95px radius is a 190px loop on a 375px canvas, so a stroke
+  // drawn within 95px of an edge gets its loop amputated with no signal that
+  // anything was lost. Two limits stop that, and a pen is drawn with whichever
+  // of them bites harder.
   //
-  // At or above 640px the factor is exactly 1 and the pens are the constants
-  // above, unchanged, which is what keeps `orbit` drawing what day 004 drew:
-  // 1440x900 and 1440x700 both measure 1.000, as does a tablet in portrait.
-  // Below it the factor is continuous rather than a phone-only special case,
-  // so a short desktop window does draw a slightly smaller orbit — 1440x620
-  // measures 0.969, 1280x600 0.938. That is deliberate: the short edge is what
-  // a wide loop runs out of first, whatever the device is. The 375x667 phone
-  // this exists for measures 0.586.
+  // 1. A scale below a reference edge of 640px. It measures the *canvas*
+  //    (viewW/viewH, set by sizeCanvas), not the viewport: the control bar is
+  //    not drawing surface, and counting it made a landscape phone look
+  //    roomier than it is. At or above 640px the factor is exactly 1 and the
+  //    pens are the constants above, unchanged — which is what keeps `orbit`
+  //    drawing what day 004 drew. A 1440x900 window is a 1440x843 canvas and
+  //    measures 1.000, as do 1440x700 (643) and a tablet in portrait; below
+  //    that it is continuous rather than a phone-only special case, so a short
+  //    desktop window draws a slightly smaller orbit. A 375x667 phone is a
+  //    375x510 canvas and measures 0.586.
+  //
+  // 2. A cap of a twelfth of the canvas's short edge, so no pen's loop is ever
+  //    wider than a sixth of it. The scale alone only shrank the problem: it
+  //    still left `drift` a 55.7px radius on that 375x510 canvas, and a stroke
+  //    drawn 25px from the top still lost 38% of its ink against the same
+  //    stroke drawn at centre. The cap takes that to 20%. It binds on the
+  //    desktop too — `drift` is 70.2px rather than 95px at 1440x900 — and that
+  //    is deliberate: a 190px loop clips against a desktop edge as well, just
+  //    less often. It never binds on `orbit` or `coil` at or above the
+  //    reference edge, so both still render the day-004 line exactly (measured:
+  //    0-pixel diff at 1440x900, 1440x700 and 1024x768).
   //
   // speedBase scales with the radius because it *is* roughly angVel * radius,
   // the speed the orbit produces on its own; taper scales inversely so the
   // width curve stays the same shape over the compressed speed range. Scaling
   // radius alone would flatten the taper into a constant-width line.
   var REF_EDGE = 640;
+  var MAX_RADIUS_FRACTION = 1 / 12;
   var penScale = 1;
+  var maxRadius = Infinity;
 
   function updatePenScale() {
-    var shortEdge = Math.min(window.innerWidth, window.innerHeight);
+    var shortEdge = Math.min(viewW, viewH);
     penScale = Math.min(1, shortEdge / REF_EDGE);
+    maxRadius = shortEdge * MAX_RADIUS_FRACTION;
   }
 
+  // The effective scale is whichever of the two limits bites harder, and every
+  // constant that depends on radius moves with it, so a scaled pen is the same
+  // pen drawn smaller rather than a different one. k === 1 returns the constants
+  // object itself: that is the day-004 pen, byte for byte.
   function scaledPen(pen) {
-    if (penScale === 1) return pen;
+    var radius = Math.min(pen.radius * penScale, maxRadius);
+    var k = radius / pen.radius;
+    if (k === 1) return pen;
     return {
       chase: pen.chase,
       angVel: pen.angVel,
-      radius: pen.radius * penScale,
+      radius: radius,
       wMin: pen.wMin,
       wMax: pen.wMax,
-      speedBase: pen.speedBase * penScale,
-      taper: pen.taper / penScale
+      speedBase: pen.speedBase * k,
+      taper: pen.taper / k
     };
   }
 
