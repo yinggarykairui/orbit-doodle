@@ -497,6 +497,12 @@
     redoBtn.disabled = live || cursor === history.length;
     clearBtn.disabled = !ink;
     saveBtn.disabled = !ink;
+    // A dim Save must not still read "Saved ✓". Clear or Ctrl+Z inside the
+    // 1.6 s acknowledgement window empties the canvas the export came from, so
+    // the ack is advertising a completed action on a control that can no
+    // longer offer one; it goes the moment the button does, not when its timer
+    // happens to expire.
+    if (!ink) clearSaveAck();
     var show = !ink;
     // Empty with entries applied usually means the newest applied entry is a
     // clear marker (that is what makes the canvas look empty), so Undo is the
@@ -812,13 +818,25 @@
   // moment — no new element, and the width is pinned first so the bar cannot
   // reflow under the pointer. aria-live carries the same word to a screen
   // reader; the label is the only text in the bar that ever changes.
+  // The button's *name* is not part of the acknowledgement. It carries a fixed
+  // `aria-label`, so whatever the visible label reads, the accessible name
+  // stays "Save PNG" and the live region announces the change without the
+  // control renaming itself. Before that, a screen-reader user who landed on
+  // the button inside the 1.6 s window heard "Saved ✓, button" — a name for an
+  // action, not for the thing the button does.
   var SAVE_LABEL = saveBtn.textContent;
+  saveBtn.setAttribute('aria-label', SAVE_LABEL);
   var saveAckTimer = null;
+  function clearSaveAck() {
+    clearTimeout(saveAckTimer);
+    saveAckTimer = null;
+    if (saveBtn.textContent !== SAVE_LABEL) saveBtn.textContent = SAVE_LABEL;
+  }
   function ackSave() {
     if (!saveBtn.style.minWidth) saveBtn.style.minWidth = saveBtn.offsetWidth + 'px';
     saveBtn.textContent = 'Saved ✓';
     clearTimeout(saveAckTimer);
-    saveAckTimer = setTimeout(function () { saveBtn.textContent = SAVE_LABEL; }, 1600);
+    saveAckTimer = setTimeout(clearSaveAck, 1600);
   }
 
   saveBtn.addEventListener('click', function () {
