@@ -163,9 +163,11 @@ no new scope. Every line here was verified by driving the build, not by
 reading the diff:
 
 - [x] Provenance footer says day 006 (it said 004)
-- [x] A released stroke finishes its tail instead of freezing behind the hand:
-      `drift` went from 419 px short of a 1000 px drag to 5 px past it, `orbit`
-      194 → past, `coil` 69 → past; one history entry, interruptible
+- [x] A released stroke finishes its tail instead of freezing behind the hand.
+      Rightmost ink against a 200→1200 px drag at 1440x900: `drift` 419 px
+      short → 16 px short, `orbit` 194 → 41 px past, `coil` 69 → 14 px past
+      (the tail ends on the orbit circle, so "past" is the radius). One history
+      entry, interruptible by the next pointer-down.
 - [x] Pen scale measures the canvas, plus a radius cap of a twelfth of its
       short edge; phone edge-loss 38% → 20%; `orbit`/`coil` 0-pixel diff
 - [x] `:hover` on all twelve controls (0 px → 176–3698 px each) and a
