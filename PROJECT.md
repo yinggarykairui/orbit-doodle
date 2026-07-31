@@ -159,8 +159,11 @@ Increment 2 changed the shape as follows, and this is what ships today:
       from the running build
 
 **Evening polish (day 006)** — defects closed against the shipped increment,
-no new scope. Every line here was verified by driving the build, not by
-reading the diff:
+no new scope. Every line here was checked by driving the build, not by reading
+the diff; the off-canvas line below is the reminder that driving one state at a
+time is not the same as driving the build. It passed a narrowed window with ink
+in history and failed the same window after a Clear, and a third pass had to
+close it. Lines a later pass reopened say so.
 
 - [x] Provenance footer says day 006 (it said 004)
 - [x] A released stroke finishes its tail instead of freezing behind the hand.
@@ -171,12 +174,30 @@ reading the diff:
 - [x] Pen scale measures the canvas, plus a radius cap of a twelfth of its
       short edge; phone edge-loss 38% → 20%; `orbit`/`coil` 0-pixel diff
 - [x] `:hover` on all twelve controls (0 px → 176–3698 px each) and a
-      `:focus-visible` outline distinct from the selected ring
+      `:focus-visible` outline distinct from the selected ring. The selected
+      swatch's halo had no blur, so it resolved to a flat rgb(92,90,87) collar
+      butted against the warm-white ring; blurred on the third pass, the same
+      scan line ramps 27 → 67 over 10 px instead of stepping 27 → 92 → 245
 - [x] `aria-pressed` on both toggle groups, set from the same place as the
       ring; swatches labelled by colour name, not `color 3`
 - [x] Clear and Save PNG disable with the arrows, on visible ink
-- [x] Save PNG acknowledges in-page (label + `aria-live`)
-- [x] Chrome tells the truth when the art is off-canvas
+- [x] Save PNG acknowledges in-page (label + `aria-live`) — and the ack is
+      transient text, not a rename: the button keeps a fixed `aria-label`, and
+      emptying the canvas inside the 1.6 s window drops the ack instead of
+      leaving a dimmed button reading `Saved ✓` (third pass)
+- [x] Chrome tells the truth when the art is off-canvas — **and only when it
+      is** (reopened and closed on the third pass). The first version asked the
+      question of every entry in the list, so an emptiness that Undo or Clear
+      owned was blamed on the window, and that branch is tested first, so it
+      won. Measured at 1440x900: draw near the right edge, Clear, narrow to
+      500 px and the hint read `off-canvas — widen the window`; widening back
+      to 1440 left 0 inked pixels and flipped it to `cleared`. With Undo the
+      hint asked for a wider window while `↶` was disabled and `↷` — the
+      control that helps — sat enabled and unnamed. The test now walks
+      `visibleFrom() … cursor`, the span `redraw()` paints, so Clear reads
+      `cleared` at 500 px and 1440 px alike, Undo reads `undone`, and a stroke
+      genuinely outside the canvas still reads `off-canvas`. Re-driven at
+      1440x900 and by rotating a 375x667 phone to landscape.
 - [x] Background fills the backing store, so a fractional dpr no longer exports
       a half-transparent edge column (measured RGBA 16,16,16,128 → none)
 - [x] Controls opt out of text selection and the touch callout
@@ -185,6 +206,15 @@ reading the diff:
 - [x] README's "What it does" run-on split, still 5 sentences
 - [x] The `replayStroke` comment states the measured cost instead of claiming
       it is fast enough
+- [x] `screenshot.png` recaptured from *this* build (third pass), 2400x1600 at
+      deviceScaleFactor 2. The committed one predated the radius cap and the
+      settle: the same `drift` drag at 1200x800 traces a 192 px loop on the
+      pre-cap build and 119 px now, colour-keying gold gives a max loop outer
+      span of 139.7 → 96.2 css px between the two PNGs, and every stroke in the
+      old shot ended in a blunt round cap. Its caption — an italic paragraph
+      between the image and the demo link, a line STYLE.md's template does not
+      have — is now the image's alt text, which keeps the words and the
+      template order both
 
 ## Open threads
 
@@ -199,8 +229,9 @@ reading the diff:
   verified as a 0-pixel diff of the drag phase against the pre-polish build at
   1440x900, 1440x700 and 1024x768 — but the cap does bind on `drift` at desktop
   size (70.2 px rather than 95 px at 1440x900), because a 190 px loop clips
-  against a desktop edge too, just less often. **`screenshot.png` predates that
-  and shows the wider `drift`; a later pass owns recapturing it.**
+  against a desktop edge too, just less often. `screenshot.png` was recaptured
+  from the capped build on the third polish pass, so it no longer advertises the
+  wider `drift`.
   What is *not* closed: an orbiting pen drawn close to an edge still loses the
   arc that falls outside. On a 375x510 canvas, the same stroke drawn 25 px from
   the top now loses 20% of its ink against one drawn at centre, down from 38%,
@@ -209,6 +240,34 @@ reading the diff:
   clamping the orbit center away from the edges, which would stop the ink
   landing where the finger points. Both are design calls for an owner issue,
   not a fix cycle.
+
+- **The three pens compress into one and a half on a phone.** Loop diameters,
+  one slow horizontal drag per pen, widest column of ink: at 375x667 (canvas
+  375x510) `coil` 19 px, `orbit` 53 px, `drift` 69 px; at 1440x900 (canvas
+  1440x843) `coil` 30 px, `orbit` 85 px, `drift` 139 px. The gap between the
+  two big pens narrows from 1.64x to 1.30x, so the flagship pen and the default
+  pen draw nearly the same line on the device most people will meet the toy on.
+  The cause is the two limits in `scaledPen` swapping which one is in charge:
+  below the 640 px reference edge `orbit`'s radius comes from `penScale`
+  (40/640 = 0.0625 × short edge) while `drift`'s is pinned by the cap
+  (1/12 = 0.0833 × short edge), which locks their radius ratio at 1.33x; above
+  it `penScale` saturates at 1 and the ratio opens back out to 1.76x at an
+  843 px short edge. Line widths are identical at every size — `wMin`/`wMax` do
+  not scale — which adds the same constant to both spans and flattens the drawn
+  ratio a little further still. Not fixed here: every way out changes what a pen
+  *is* on a phone (a smaller cap fraction, a `wMax` that scales with the radius,
+  or a per-pen reference edge), and that is a design call with its own issue.
+
+- **First load shows nothing the toy makes.** A stranger who opens the page gets
+  a black rectangle, a control bar with two disabled arrows, and one line of
+  text — `press and drag — the pen orbits you`. Nothing on screen demonstrates
+  the flourish that is the entire point, so the toy asks for a gesture before it
+  has shown what a gesture buys. `screenshot.png` and the demo link carry that
+  job today, which works from the README and not at all from the URL. Not fixed
+  here: every answer is a feature — a seeded demo stroke, a ghost animation, a
+  first-run replay — and each adds state or motion the fence excludes. Its issue
+  has to settle whether the demo is undoable, whether it counts as ink for Clear
+  and Save PNG, and how it gets out of the way on the first pointerdown.
 
 - **Unbounded history, and replay is not free.** Nothing caps the entry list,
   and a redraw is every segment drawn since the last clear — so undo scales
