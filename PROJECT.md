@@ -181,10 +181,12 @@ close it. Lines a later pass reopened say so.
 - [x] `aria-pressed` on both toggle groups, set from the same place as the
       ring; swatches labelled by colour name, not `color 3`
 - [x] Clear and Save PNG disable with the arrows, on visible ink
-- [x] Save PNG acknowledges in-page (label + `aria-live`) — and the ack is
-      transient text, not a rename: the button keeps a fixed `aria-label`, and
-      emptying the canvas inside the 1.6 s window drops the ack instead of
-      leaving a dimmed button reading `Saved ✓` (third pass)
+- [~] Save PNG acknowledges in-page (label + `aria-live`), and the ack is
+      transient text rather than a rename: the button keeps a fixed
+      `aria-label`. The third pass also meant to drop the ack when the canvas
+      empties inside the 1.6 s window; that half is **not** closed, and the
+      line here claiming it was has been corrected. See the open thread below —
+      a fourth independent verifier reproduced the dimmed `Saved ✓`.
 - [x] Chrome tells the truth when the art is off-canvas — **and only when it
       is** (reopened and closed on the third pass). The first version asked the
       question of every entry in the list, so an emptiness that Undo or Clear
@@ -240,6 +242,28 @@ close it. Lines a later pass reopened say so.
   clamping the orbit center away from the edges, which would stop the ink
   landing where the finger points. Both are design calls for an owner issue,
   not a fix cycle.
+
+- **`Saved ✓` can still land on a disabled button — a race, not a state bug.**
+  Found by the fourth independent pass of the 2026-07-30 evening shift, after
+  the loop cap was spent, so it is recorded rather than fixed. `ackSave()` runs
+  inside the asynchronous `canvas.toBlob` callback, while the guard that drops
+  the ack runs synchronously from `updateChrome()`. If the canvas empties during
+  the blob encode — measured at 47.4 ms at 1440x900/dpr 2, 20–21 ms at dpr 1 and
+  at 375x667 — the disable lands first and the ack lands after it, leaving a
+  dimmed `Saved ✓` for the rest of the 1.6 s timer. Reproduces at delays of
+  0–20 ms and reliably from `save.click(); clear.click();` in one task; clean at
+  40 ms. No state corruption: the exported PNG is correct (`toBlob` snapshots at
+  call time), the `aria-label` stays `Save PNG`, and it self-heals on the timer.
+  The fix is to re-ask the ink question inside the callback rather than only
+  before it.
+
+- **Two chrome nits from the same pass.** The `off-canvas — widen the window`
+  hint is reachable on a phone (320x568, or rotating 375x667 with a right-edge
+  stroke) where widening is not an affordance the device has — rotating is the
+  real remedy, and the copy should say something a phone can act on. And a
+  control that disables itself under the keyboard drops focus to `<body>`, so
+  the next Tab restarts at the first swatch; the pattern predates this shift on
+  the arrows and now extends to Clear and Save PNG.
 
 - **The three pens compress into one and a half on a phone.** Loop diameters,
   one slow horizontal drag per pen, widest column of ink: at 375x667 (canvas
