@@ -2,9 +2,7 @@
 
 A drawing toy where the pen orbits your cursor — you steer the center, physics draws the flourishes.
 
-![screenshot](screenshot.png)
-
-*One drawing made with all three pens — drift's wide slow loops, orbit's coils, coil's tight spring — over the control bar: five colours, the pen picker, undo and redo.*
+![One drawing made with all three pens: drift's wide slow loops in gold, orbit's coils in warm white, coil's tight spring in sky blue, each stroke ending in the curl the pen leaves as it settles. Below it the control bar — five colours, the pen picker, undo and redo, Clear and Save PNG.](screenshot.png)
 
 **[Live demo](https://yinggarykairui.github.io/orbit-doodle/)**
 
