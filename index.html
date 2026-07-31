@@ -139,7 +139,7 @@
   </div>
   <div class="group">
     <button class="action" id="clear" type="button">Clear</button>
-    <button class="action" id="save" type="button">Save PNG</button>
+    <button class="action" id="save" type="button" aria-live="polite">Save PNG</button>
   </div>
 </div>
 <script>
@@ -237,6 +237,8 @@
   var penGroup = document.getElementById('pens');
   var undoBtn = document.getElementById('undo');
   var redoBtn = document.getElementById('redo');
+  var clearBtn = document.getElementById('clear');
+  var saveBtn = document.getElementById('save');
   var ctx = canvas.getContext('2d');
 
   var strokeColor = PALETTE[0];
@@ -344,9 +346,51 @@
   function undo() { endStroke(); if (cursor > 0) cursor--; redraw(); }
   function redo() { endStroke(); if (cursor < history.length) cursor++; redraw(); }
 
-  // Is anything drawn right now? Drives the hint overlay and Clear's no-op.
+  // Does any of this stroke land on the canvas as it is sized right now?
+  // Counting history entries is not the same question: replay preserves art a
+  // narrowed window pushed off the edge (widening brings it back), so a canvas
+  // can be visibly empty with entries applied. Chrome that counts entries then
+  // insists there is something there. Samples are a few px apart, so testing
+  // the samples rather than the segments between them cannot miss a crossing.
+  function onCanvas(x, y, w) {
+    var r = w / 2;
+    return x + r >= 0 && x - r <= viewW && y + r >= 0 && y - r <= viewH;
+  }
+
+  function strokeVisible(s) {
+    var p = s.pts;
+    if (!p || p.length < 6) return false;
+    for (var i = 0; i < p.length; i += 3) {
+      if (onCanvas(p[i], p[i + 1], p[i + 2])) return true;
+    }
+    return false;
+  }
+
+  // Is anything visibly drawn right now? Drives the hint overlay and which of
+  // the four buttons are live.
   function hasInk() {
-    return liveInk() || visibleFrom() < cursor;
+    if (pending && strokeVisible(pending)) return true;
+    for (var i = visibleFrom(); i < cursor; i++) {
+      if (strokeVisible(history[i])) return true;
+    }
+    return false;
+  }
+
+  // Strokes exist, but not one of them would land on a canvas this size. No
+  // history button can help — only a wider window — so neither hint about ↶/↷
+  // would be true.
+  function allInkOffCanvas() {
+    var strokes = 0;
+    for (var i = 0; i < history.length; i++) {
+      if (history[i].kind !== 'stroke') continue;
+      strokes++;
+      if (strokeVisible(history[i])) return false;
+    }
+    if (liveInk()) {
+      strokes++;
+      if (strokeVisible(pending)) return false;
+    }
+    return strokes > 0;
   }
 
   // A live stroke counts as drawn the moment it has a segment: it is what the
@@ -363,22 +407,35 @@
   // wrong half the time.
   var HINT_UNDONE = 'undone — press ↷ to bring it back';
   var HINT_CLEARED = 'cleared — press ↶ to bring it back';
+  // A narrowed window can push the whole drawing past the edge. Nothing is
+  // lost — replay puts it back when the window widens — but saying "cleared"
+  // or "press and drag" there would both be false.
+  var HINT_OFFCANVAS = 'off-canvas — widen the window';
   var hintVisible = true;
   // Buttons and hint always describe the real state — including on first load,
   // where both arrows start disabled, and mid-stroke, where the stroke in
   // progress is already undoable and has already doomed the redo tail.
+  // Undo and redo answer "is there an entry either side of the cursor"; Clear
+  // and Save answer "is there ink on the canvas", because that is what they
+  // act on: an enabled Clear with nothing to clear is a silent no-op, and an
+  // enabled Save PNG with nothing to save exports a blank rectangle.
   function updateChrome() {
     var live = liveInk();
+    var ink = hasInk();
     undoBtn.disabled = cursor === 0 && !live;
     redoBtn.disabled = live || cursor === history.length;
-    var show = !hasInk();
-    // Empty with entries applied can only mean the newest applied entry is a
+    clearBtn.disabled = !ink;
+    saveBtn.disabled = !ink;
+    var show = !ink;
+    // Empty with entries applied usually means the newest applied entry is a
     // clear marker (that is what makes the canvas look empty), so Undo is the
     // way back. Empty with nothing applied and a redo tail waiting is the
-    // undone-to-empty case, and Redo is the way back.
+    // undone-to-empty case, and Redo is the way back. Neither is true if the
+    // art is simply outside this window, so that case is tested first.
     var text = HINT_START;
     if (show) {
-      if (cursor > 0) text = HINT_CLEARED;
+      if (allInkOffCanvas()) text = HINT_OFFCANVAS;
+      else if (cursor > 0) text = HINT_CLEARED;
       else if (history.length > 0) text = HINT_UNDONE;
     }
     if (hint.textContent !== text) hint.textContent = text;
@@ -603,8 +660,12 @@
         ctx.stroke();
 
         // The stroke has just become real: it hides the hint, and it is
-        // already undoable. Fires once per stroke, not once per frame.
-        if (pending.pts.length === 6) updateChrome();
+        // already undoable. Fires once per stroke, not once per frame — unless
+        // the hint is still up because the loop started off the edge, in which
+        // case the first sample that lands on the canvas fires it again.
+        if (pending.pts.length === 6 || (hintVisible && onCanvas(penX, penY, strokeW))) {
+          updateChrome();
+        }
       }
     }
 
@@ -640,23 +701,41 @@
   });
 
   // --- Clear / Save --------------------------------------------------------
-  document.getElementById('clear').addEventListener('click', function () {
-    // Clearing an already-clear canvas would leave a dead undo step to press
-    // through, so it appends nothing.
+  clearBtn.addEventListener('click', function () {
+    // The button is disabled when there is nothing to clear; this also covers
+    // a click that beats the next updateChrome. Clearing an already-clear
+    // canvas would leave a dead undo step to press through.
     if (!hasInk()) return;
     endStroke(); // a stroke in progress is part of what Clear clears
     pushEntry({ kind: 'clear' });
     redraw();
   });
 
-  document.getElementById('save').addEventListener('click', function () {
+  // A download is invisible in-page: on a browser that saves silently, Save
+  // PNG looked like a button that did nothing. The button says so itself for a
+  // moment — no new element, and the width is pinned first so the bar cannot
+  // reflow under the pointer. aria-live carries the same word to a screen
+  // reader; the label is the only text in the bar that ever changes.
+  var SAVE_LABEL = saveBtn.textContent;
+  var saveAckTimer = null;
+  function ackSave() {
+    if (!saveBtn.style.minWidth) saveBtn.style.minWidth = saveBtn.offsetWidth + 'px';
+    saveBtn.textContent = 'Saved ✓';
+    clearTimeout(saveAckTimer);
+    saveAckTimer = setTimeout(function () { saveBtn.textContent = SAVE_LABEL; }, 1600);
+  }
+
+  saveBtn.addEventListener('click', function () {
+    if (!hasInk()) return; // never export a blank rectangle
     canvas.toBlob(function (blob) {
-      if (!blob) return; // toBlob may yield null; export is a no-op then
+      if (!blob) return; // toBlob may yield null; export is a no-op then, and
+                         // an export that did not happen is not acknowledged
       var url = URL.createObjectURL(blob);
       var a = document.createElement('a');
       a.href = url;
       a.download = 'orbit-doodle.png';
       a.click();
+      ackSave();
       // Revoking in the same task can beat the download on slower engines,
       // which then saves nothing. One minute is far longer than any browser
       // needs to pick the blob up, and the blob is freed either way.
