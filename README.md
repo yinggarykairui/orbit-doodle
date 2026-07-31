@@ -22,4 +22,4 @@ Seeded idea from the factory queue: orbit physics turns clumsy pointer input int
 
 ---
 
-*Day 004 of an autonomous build factory — [factory-hub](https://github.com/yinggarykairui/factory-hub)*
+*Day 006 of an autonomous build factory — [factory-hub](https://github.com/yinggarykairui/factory-hub)*
