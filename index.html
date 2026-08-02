@@ -498,9 +498,24 @@
   var HINT_UNDONE = 'undone — press ↷ to bring it back';
   var HINT_CLEARED = 'cleared — press ↶ to bring it back';
   // A narrowed window can push the whole drawing past the edge. Nothing is
-  // lost — replay puts it back when the window widens — but saying "cleared"
-  // or "press and drag" there would both be false.
+  // lost — replay puts it back when the canvas is big enough again — but
+  // saying "cleared" or "press and drag" there would both be false.
+  //
+  // Two ways to say it, because the remedy is not the same on both devices and
+  // naming one the device does not have is worse than naming none. A window is
+  // something you widen; a phone has no window to widen, and the state is
+  // squarely reachable there — draw near the right edge in landscape, turn the
+  // phone upright, and the ink is off the 375px canvas the same drawing had
+  // 667px of. Rotating back is the move that device actually offers, and it
+  // works in both directions, since portrait is the taller canvas.
+  //
+  // The test is what the browser reports about the pointer, not a width
+  // breakpoint: a 500px-wide desktop window is narrow and still widens, and a
+  // tablet is roomy and still only rotates. It is read at hint time rather than
+  // cached, so a device that changes its answer gets the right sentence.
   var HINT_OFFCANVAS = 'off-canvas — widen the window';
+  var HINT_OFFCANVAS_TOUCH = 'off-canvas — rotate to bring it back';
+  var touchOnly = window.matchMedia('(hover: none) and (pointer: coarse)');
   var hintVisible = true;
   // Buttons and hint always describe the real state — including on first load,
   // where both arrows start disabled, and mid-stroke, where the stroke in
@@ -532,7 +547,7 @@
     // or it would pre-empt the two states it is meant to defer to.
     var text = HINT_START;
     if (show) {
-      if (allInkOffCanvas()) text = HINT_OFFCANVAS;
+      if (allInkOffCanvas()) text = touchOnly.matches ? HINT_OFFCANVAS_TOUCH : HINT_OFFCANVAS;
       else if (cursor > 0) text = HINT_CLEARED;
       else if (history.length > 0) text = HINT_UNDONE;
     }
