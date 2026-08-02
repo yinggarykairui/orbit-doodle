@@ -63,6 +63,87 @@ mechanic) · export changes beyond keeping Save PNG working exactly as it does
 or any timeline UI · layers · eraser · brush-size or physics sliders · stroke
 selection or per-stroke editing · a history panel.
 
+**Increment 3 (day 009 revisit — the first thing you see is the toy drawing).**
+The open thread "First load shows nothing the toy makes" is the biggest gap
+between what the toy is and what a stranger meets: the demo URL opens on a
+black rectangle, a bar of mostly-disabled controls, and one line of text asking
+for a gesture before anything has shown what a gesture buys. The README's
+screenshot does that job today, which works from the README and not at all from
+the URL. This increment closes it, and closes three named defects from the
+day-006 evening pass that were recorded rather than fixed.
+
+That thread asked for three decisions before any code. The planner settles them
+here:
+
+- **Is the opening flourish undoable?** No. It is not a history entry. Undo and
+  Redo stay exactly as disabled on first load as they are today.
+- **Does it count as ink for Clear and Save PNG?** No. `hasInk()` is untouched,
+  so Clear and Save PNG stay disabled while it is on screen and it can never
+  reach an exported PNG. This is what makes the feature safe: on first load
+  every control that could observe it is already disabled for other reasons.
+- **How does it get out of the way?** The first `pointerdown` on the canvas
+  erases it within one frame, and it never returns for the life of the page.
+  Using any control dismisses it too — the ghost is a first-run state, not a
+  mode.
+
+In scope:
+
+- **The opening flourish.** With history empty and no input yet received, the
+  page draws one stroke of its own: a scripted pointer path fed through the
+  same pen physics the toy uses, painted at reduced opacity so it reads as a
+  demonstration rather than as the user's drawing. It animates in over roughly
+  2.4 s and then rests until dismissed. The scripted path is deterministic and
+  sized from the canvas, so it composes with the existing pen scale rather than
+  fighting it.
+- **Reduced motion is respected.** Under `prefers-reduced-motion: reduce` the
+  flourish is present in full on load with no animation — a stranger who has
+  asked the OS for stillness still sees what the toy makes.
+- **`Saved ✓` cannot land on a disabled button** (open thread, day-006 evening
+  fourth pass). `ackSave()` runs in the async `toBlob` callback while the guard
+  that drops it runs synchronously, so emptying the canvas during the blob
+  encode leaves a dimmed `Saved ✓` for the rest of the 1.6 s timer. The fix is
+  the one the thread names: re-ask the ink question inside the callback.
+- **The off-canvas hint names a remedy the device has** (open thread, "two
+  chrome nits"). `off-canvas — widen the window` is reachable on a phone, where
+  widening is not an affordance the device offers.
+- **A control that disables itself keeps focus somewhere real** (same thread).
+  Today Undo, Redo, Clear and Save PNG drop focus to `<body>` when they go
+  disabled under the keyboard, so the next Tab restarts at the first swatch.
+
+**Increment-3 fence (added to the standing fence above).** The flourish is not
+persisted, not undoable, not exported, not replayable, has no controls, does
+not loop, and does not return. The standing fence's "no animation" line is
+opened *only* for this one first-run draw-in — no other motion, no timeline, no
+replay UI. No new file, no dependency, no build step. Nothing in this increment
+changes stroke physics, the palette, the pens, or what `redraw()` paints from
+history: an existing drawing must render pixel-identically to the day-006
+build.
+
+**Done-checklist (increment 3).**
+
+1. First load at 1440x900 and at 375x667 shows ink from the opening flourish
+   within 3 s with no pointer input whatsoever.
+2. While the flourish is on screen, Undo, Redo, Clear and Save PNG are all
+   still disabled — the flourish is not ink.
+3. The first `pointerdown` erases it within one frame, and it never reappears:
+   not after a stroke, an undo, a clear, a resize, or a dpr change.
+4. Under `prefers-reduced-motion: reduce` the flourish is complete on load and
+   nothing animates.
+5. `save.click(); clear.click();` in one task leaves no `Saved ✓` on a disabled
+   button.
+6. At 375x667 the off-canvas hint names a remedy the device actually has.
+7. Tab to Undo, press it until it disables, and focus is still on a real
+   control rather than `<body>`. Same for Redo, Clear, Save PNG.
+8. Still one HTML file and exactly one network request; no console errors or
+   warnings; no page scroll at 320 px; a drawing made before this increment
+   renders pixel-identically.
+
+**Rubric lines that matter most here:** delight (this is the increment whose
+whole purpose is the first ten seconds), README truthfulness (the README must
+describe the flourish exactly as it behaves, including that it is not part of
+the drawing), and scope discipline (the fence above is narrow on purpose — the
+temptation is a looping demo reel).
+
 ## Architecture sketch
 
 Shipped build (day 006): one IIFE in `index.html`, no globals, no deps, no
