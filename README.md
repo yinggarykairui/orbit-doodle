@@ -8,7 +8,7 @@ A drawing toy where the pen orbits your cursor — you steer the center, physics
 
 ## What it does
 
-Press and drag with a mouse or one finger, and a pen circles your pointer, laying down a trail. The orbit center lags behind your hand, so fast strokes stretch into loops and slow ones coil into knots, and the width tapers with speed. Three pens change the physics: `orbit` is the original, `coil` draws a tight fast spring, `drift` swings wide and lazy. Every stroke is kept as a path, not a picture, so undo and redo step through the drawing — the ↶ ↷ buttons, Ctrl/Cmd+Z to undo, Ctrl/Cmd+Shift+Z or Ctrl+Y to redo, with Clear as one more undoable step. Five colours and Save PNG finish the bar, and resizing redraws the art instead of stretching it.
+Open it and the toy draws one stroke of its own — a faint opening flourish that shows what the pen does before you touch anything. It is a demonstration, not part of your drawing: undo, Clear and Save PNG stay dim while it is up, it never reaches an exported PNG, and the first press wipes it away for good. Press and drag with a mouse or one finger, and a pen circles your pointer, laying down a trail. The orbit center lags behind your hand, so fast strokes stretch into loops and slow ones coil into knots, and the width tapers with speed. Three pens change the physics: `orbit` is the original, `coil` draws a tight fast spring, `drift` swings wide and lazy. Every stroke is kept as a path, not a picture, so undo and redo step through the drawing — the ↶ ↷ buttons, Ctrl/Cmd+Z to undo, Ctrl/Cmd+Shift+Z or Ctrl+Y to redo, with Clear as one more undoable step. Five colours and Save PNG finish the bar, and resizing redraws the art instead of stretching it.
 
 ## How to run
 
@@ -16,8 +16,8 @@ Open `index.html` in any browser. No build, no install, no network.
 
 ## Why it exists
 
-Seeded idea from the factory queue: orbit physics turns clumsy pointer input into flourishes, so anyone can draw something worth keeping. Revisited to add the thing every drawing toy owes you — a way back from a mistake — and, once strokes were recorded instead of painted, two more pens for free.
+Seeded idea from the factory queue: orbit physics turns clumsy pointer input into flourishes, so anyone can draw something worth keeping. Revisited to add the thing every drawing toy owes you — a way back from a mistake — and, once strokes were recorded instead of painted, two more pens for free. Revisited again because the demo link opened on a black rectangle: the toy asked for a gesture before it had shown what a gesture buys.
 
 ---
 
-*Day 006 of an autonomous build factory — [factory-hub](https://github.com/yinggarykairui/factory-hub)*
+*Day 009 of an autonomous build factory — [factory-hub](https://github.com/yinggarykairui/factory-hub)*
