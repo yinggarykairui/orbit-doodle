@@ -296,6 +296,7 @@
   }
 
   var stage = document.getElementById('stage');
+  var controls = document.getElementById('controls');
   var canvas = document.getElementById('canvas');
   var hint = document.getElementById('hint');
   var swatchGroup = document.getElementById('swatches');
@@ -376,6 +377,10 @@
     ctx.restore();
     for (var i = visibleFrom(); i < cursor; i++) replayStroke(history[i]);
     if (pending) replayStroke(pending);
+    // Painted after the history it is standing in for, and outside it: the
+    // flourish is a view-only overlay, so it is repainted here and recorded
+    // nowhere. It no-ops once anything has been drawn or it has been dismissed.
+    paintGhostSoFar();
     updateChrome();
   }
 
@@ -413,8 +418,10 @@
     pending = null;
   }
 
-  function undo() { endStroke(); if (cursor > 0) cursor--; redraw(); }
-  function redo() { endStroke(); if (cursor < history.length) cursor++; redraw(); }
+  // dismissGhost() here covers the keyboard shortcuts; the buttons are covered
+  // by the listener on the control bar. Either way the redraw below erases it.
+  function undo() { dismissGhost(); endStroke(); if (cursor > 0) cursor--; redraw(); }
+  function redo() { dismissGhost(); endStroke(); if (cursor < history.length) cursor++; redraw(); }
 
   // Does any of this stroke land on the canvas as it is sized right now?
   // Counting history entries is not the same question: replay preserves art a
@@ -568,6 +575,133 @@
     }
   }
 
+  // --- The opening flourish ------------------------------------------------
+  // First run only: with history empty and no input received, the page draws
+  // one stroke of its own, so a stranger sees what the pen does before touching
+  // anything. It is emphatically *not* part of the drawing — not a history
+  // entry, not undoable, not ink for hasInk(), never in an exported PNG. That
+  // is what makes it safe rather than a second source of truth: on an empty
+  // canvas every control that could observe it is already disabled for its own
+  // reasons, so nothing here changes what Undo, Redo, Clear or Save PNG mean.
+  //
+  // It is drawn through the same physics as a real stroke — the scripted
+  // pointer path below is fed to the loop from `tick`, one fixed 60fps step per
+  // sample — so what it demonstrates is exactly what a drag would do. The path
+  // is a pure function of the canvas size, which is what lets a resize rebuild
+  // it deterministically instead of stretching a bitmap.
+  var GHOST_FRAMES = 144;        // 2.4s of draw-in at 60fps
+  var GHOST_ALPHA = 0.42;        // reduced opacity: a demonstration, not your line
+  var ghost = null;              // { pts, w, h } — the scripted path, canvas-sized
+  var ghostShown = 0;            // how many of its segments are painted
+  var ghostMs = 0;
+  var ghostGone = false;         // dismissed, for the life of the page
+  var reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+
+  function ghostActive() {
+    return !ghostGone && history.length === 0 && !pending;
+  }
+
+  // The scripted pointer path: a figure eight walked with an ease-out, so the
+  // gesture starts fast and coasts to a stop. That is the whole demonstration —
+  // fast is where the orbit stretches into long loops, slow is where it coils
+  // into knots, and one path shows both.
+  //
+  // Its amplitudes are measured in orbit radii, not in canvas fractions, and
+  // only then clamped to the canvas. The radius is what scaledPen() shrinks on
+  // a small screen, so sizing the figure off the canvas alone would leave the
+  // loops looking twice as large relative to a phone-sized figure. In radii the
+  // composition is the same drawing at every size, and the clamp is what keeps
+  // it on screen: the radius term binds at 1440x900, the canvas term binds at
+  // 375x667, and the pen path clears every edge by at least 59px down to
+  // 320x568 and in landscape.
+  var TAU = Math.PI * 2;
+  var GHOST_PHASE_EASE = 3;
+
+  // The physics of `tick`, run at exactly one 60fps frame per step (frames === 1,
+  // so the lerp is pen.chase itself). Deterministic: same canvas size in, same
+  // path out, on load and after any resize.
+  function buildGhost() {
+    var pen = scaledPen(PENS.orbit);
+    var ax = Math.min(pen.radius * 7.2, viewW * 0.30);
+    var ay = Math.min(pen.radius * 2.95, viewH * 0.22);
+    function px_(s) { return viewW / 2 + ax * Math.sin(TAU * s); }
+    function py_(s) { return viewH / 2 + ay * Math.sin(2 * TAU * s); }
+
+    var s = 0;
+    var cx = px_(0), cy = py_(0);
+    var ang = 0;
+    var px = cx + pen.radius, py = cy;   // cos(0), sin(0)
+    var w = pen.wMax;
+    var pts = [px, py, w];
+    var minX = px, maxX = px, minY = py, maxY = py;
+    for (var i = 1; i <= GHOST_FRAMES; i++) {
+      s = 1 - Math.pow(1 - i / GHOST_FRAMES, GHOST_PHASE_EASE);
+      cx += (px_(s) - cx) * pen.chase;
+      cy += (py_(s) - cy) * pen.chase;
+      ang += pen.angVel;
+      var qx = px, qy = py;
+      px = cx + pen.radius * Math.cos(ang);
+      py = cy + pen.radius * Math.sin(ang);
+      var target = pen.wMax - (Math.hypot(px - qx, py - qy) - pen.speedBase) * pen.taper;
+      if (target < pen.wMin) target = pen.wMin;
+      if (target > pen.wMax) target = pen.wMax;
+      w += (target - w) * 0.3;
+      pts.push(px, py, w);
+      if (px < minX) minX = px; else if (px > maxX) maxX = px;
+      if (py < minY) minY = py; else if (py > maxY) maxY = py;
+    }
+    // Centre the result, not the script. The orbit centre trails the pointer,
+    // so the ink lands a little behind the figure that produced it — 58px left
+    // of centre at 1440x900. Translating by the measured offset costs one pass
+    // and makes the margins even at every size.
+    var dx = (viewW - (minX + maxX)) / 2;
+    var dy = (viewH - (minY + maxY)) / 2;
+    for (var j = 0; j < pts.length; j += 3) {
+      pts[j] += dx;
+      pts[j + 1] += dy;
+    }
+    return { pts: pts, w: viewW, h: viewH };
+  }
+
+  // Segment by segment, exactly as replayStroke paints a real stroke, so the
+  // draw-in and a rebuild after a resize composite their overlaps the same way.
+  function paintGhost(from, to) {
+    var p = ghost.pts;
+    ctx.save();
+    ctx.globalAlpha = GHOST_ALPHA;
+    ctx.strokeStyle = PALETTE[0].hex;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    for (var i = from; i <= to; i++) {
+      var j = i * 3;
+      ctx.lineWidth = p[j + 2];
+      ctx.beginPath();
+      ctx.moveTo(p[j - 3], p[j - 2]);
+      ctx.lineTo(p[j], p[j + 1]);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  // Called from redraw(), so the flourish survives a resize or a dpr change:
+  // the path is rebuilt against the new canvas and repainted to the same point
+  // in its draw-in.
+  function paintGhostSoFar() {
+    if (!ghostActive()) return;
+    if (!ghost || ghost.w !== viewW || ghost.h !== viewH) ghost = buildGhost();
+    if (ghostShown > 0) paintGhost(1, ghostShown);
+  }
+
+  // Input of any kind dismisses it: the first pointerdown on the canvas, or any
+  // use of any control. A first-run state, not a mode — it never returns.
+  function dismissGhost() {
+    if (ghostGone) return false;
+    ghostGone = true;
+    ghost = null;
+    ghostShown = 0;
+    return true;
+  }
+
   // Both pickers are toggle groups, so exactly one member is pressed at a time.
   // The class draws the ring and aria-pressed says the same thing out loud;
   // setting them from one place is what keeps them from disagreeing.
@@ -665,6 +799,9 @@
   }
 
   canvas.addEventListener('pointerdown', function (e) {
+    // Before any other test: a press on the canvas is input, so the flourish
+    // goes now. redraw() here is the erase — this frame, not a fade.
+    if (dismissGhost()) redraw();
     if (e.button !== 0) return; // primary button only (touch/pen report 0)
     if (activePointerIsLive()) return; // first active pointer wins
     // A stale claim, or a tail still settling from the last release, is
@@ -734,6 +871,19 @@
     var dt = Math.min(now - lastTime, 3 * FRAME);
     lastTime = now;
     var frames = dt / FRAME;
+
+    // The flourish draws itself in at the rate it was recorded — one sample per
+    // 60fps frame, ~2.4s — then rests until something dismisses it. Under
+    // prefers-reduced-motion it was completed before the first frame, so this
+    // block never runs.
+    if (ghost && ghostShown < GHOST_FRAMES && ghostActive()) {
+      ghostMs += dt;
+      var upto = Math.min(GHOST_FRAMES, Math.floor(ghostMs / FRAME));
+      if (upto > ghostShown) {
+        paintGhost(ghostShown + 1, upto);
+        ghostShown = upto;
+      }
+    }
 
     if (drawing || settling) {
       // Frame-rate-normalized lerp: equivalent to pen.chase per frame at 60fps.
@@ -897,7 +1047,20 @@
     else if (mq.addListener) mq.addListener(onChange);
   })();
 
+  // Using any control is input too, so the flourish goes then as well —
+  // whichever way the control was reached. Capture, so it lands before the
+  // button's own handler; `click` covers keyboard activation, `pointerdown` a
+  // press that never becomes one. A colour or pen button does not redraw by
+  // itself, so this does.
+  function dismissFromControls() { if (dismissGhost()) redraw(); }
+  controls.addEventListener('pointerdown', dismissFromControls, true);
+  controls.addEventListener('click', dismissFromControls, true);
+
   sizeCanvas();
+  // Asked for stillness: the flourish is complete before the first paint and
+  // nothing animates. It is the same path, at the same size — only the draw-in
+  // is skipped.
+  if (reduceMotion.matches) ghostShown = GHOST_FRAMES;
   redraw();
   requestAnimationFrame(tick);
 })();
