@@ -1101,7 +1101,13 @@
   // button's own handler; `click` covers keyboard activation, `pointerdown` a
   // press that never becomes one. A colour or pen button does not redraw by
   // itself, so this does.
-  function dismissFromControls() { if (dismissGhost()) redraw(); }
+  // A button is the only thing in the bar that counts: its label is a text
+  // node, so the event target is always the button itself, and a stray tap on
+  // the bar's padding is not a control being used.
+  function dismissFromControls(e) {
+    if (e.target.tagName !== 'BUTTON') return;
+    if (dismissGhost()) redraw();
+  }
   controls.addEventListener('pointerdown', dismissFromControls, true);
   controls.addEventListener('click', dismissFromControls, true);
 
