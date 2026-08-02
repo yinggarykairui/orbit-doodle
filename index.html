@@ -524,13 +524,38 @@
   // and Save answer "is there ink on the canvas", because that is what they
   // act on: an enabled Clear with nothing to clear is a silent no-op, and an
   // enabled Save PNG with nothing to save exports a blank rectangle.
+  // All four action buttons can disable themselves: the last undo, the last
+  // redo, Clear and Save PNG on the ink they just removed. A disabled control
+  // cannot hold focus, so the browser drops it to <body> and the next Tab
+  // starts the bar over at the first swatch — the keyboard user is thrown back
+  // to the beginning for having used a button. So focus is handed on before the
+  // button goes: forward through the bar first, so Tab carries on in the
+  // direction it was already going, and backward only when nothing live is
+  // left ahead. The pickers are never disabled, so there is always a target.
+  //
+  // updateChrome disables in DOM order, so a forward hop can land on a button
+  // this same pass is about to disable — that button then hands focus on again
+  // by the same rule, which is why this is written as a hop rather than a
+  // lookahead.
+  function setDisabled(btn, off) {
+    if (off && !btn.disabled && document.activeElement === btn) {
+      var all = controls.querySelectorAll('button');
+      var at = Array.prototype.indexOf.call(all, btn);
+      var next = null;
+      for (var i = at + 1; i < all.length && !next; i++) if (!all[i].disabled) next = all[i];
+      for (var j = at - 1; j >= 0 && !next; j--) if (!all[j].disabled) next = all[j];
+      if (next) next.focus();
+    }
+    btn.disabled = off;
+  }
+
   function updateChrome() {
     var live = liveInk();
     var ink = hasInk();
-    undoBtn.disabled = cursor === 0 && !live;
-    redoBtn.disabled = live || cursor === history.length;
-    clearBtn.disabled = !ink;
-    saveBtn.disabled = !ink;
+    setDisabled(undoBtn, cursor === 0 && !live);
+    setDisabled(redoBtn, live || cursor === history.length);
+    setDisabled(clearBtn, !ink);
+    setDisabled(saveBtn, !ink);
     // A dim Save must not still read "Saved ✓". Clear or Ctrl+Z inside the
     // 1.6 s acknowledgement window empties the canvas the export came from, so
     // the ack is advertising a completed action on a control that can no
