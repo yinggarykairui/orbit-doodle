@@ -1010,7 +1010,16 @@
       a.href = url;
       a.download = 'orbit-doodle.png';
       a.click();
-      ackSave();
+      // Ask the ink question again, here, on the far side of the encode. The
+      // guard that drops the ack runs synchronously from updateChrome() while
+      // this callback runs whenever toBlob is done — 47.4ms at 1440x900/dpr 2 —
+      // so a Clear or a Ctrl+Z in that window disabled the button first and
+      // this line landed a bright "Saved ✓" on it afterwards, for the rest of
+      // the 1.6s timer. The export itself is unaffected: toBlob snapshots at
+      // call time, so the PNG is the drawing that was there when it was asked
+      // for. Only the acknowledgement is withheld, because there is no longer a
+      // control for it to sit on.
+      if (hasInk()) ackSave();
       // Revoking in the same task can beat the download on slower engines,
       // which then saves nothing. One minute is far longer than any browser
       // needs to pick the blob up, and the blob is freed either way.
