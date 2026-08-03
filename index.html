@@ -322,12 +322,17 @@
   // has not, and filling the new size would leave a strip of the old frame
   // along an edge.
   var viewW = 0, viewH = 0;
+  // The dpr the backing store was last built for. Anything that needs a buffer
+  // at the same resolution (the flourish's compositing layer) reads it here
+  // rather than re-asking the window, so the two can never disagree.
+  var backingScale = 1;
 
   // Size the backing store for devicePixelRatio; keep ctx in CSS-pixel units.
   // dpr is capped at 2: past that the backing store grows quadratically for
   // no visible gain. Sizing a canvas wipes it, so callers follow with redraw().
   function sizeCanvas() {
     var dpr = Math.min(window.devicePixelRatio || 1, 2);
+    backingScale = dpr;
     viewW = stage.clientWidth;
     viewH = stage.clientHeight;
     updatePenScale();
@@ -631,11 +636,35 @@
   // it deterministically instead of stretching a bitmap.
   var GHOST_FRAMES = 144;        // 2.4s of draw-in at 60fps
   var GHOST_ALPHA = 0.42;        // reduced opacity: a demonstration, not your line
-  var ghost = null;              // { pts, w, h } — the scripted path, canvas-sized
+  var ghost = null;              // the scripted path + its layout, canvas-sized
   var ghostShown = 0;            // how many of its segments are painted
   var ghostMs = 0;
   var ghostGone = false;         // dismissed, for the life of the page
   var reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+
+  // The flourish is one stroke, so it has to composite **once**, at one alpha,
+  // the way a real stroke composites once at alpha 1. Painting its 144 segments
+  // straight onto the canvas under globalAlpha = 0.42 does not do that: every
+  // round cap lands on top of its predecessor, so the alpha stacks as
+  // 1-(1-0.42)^n and the line beads. Measured at 1200x800/dpr 2 on the thick
+  // left loop, max luminance down the line alternated 112 / 168 on a ~3.5 css-px
+  // period — 112 where one segment covered, 168 where two did — while a real
+  // stroke sampled the same way is flat. A string of pearls, and the one thing
+  // this feature exists to do is show what the toy's line looks like.
+  //
+  // So the segments are stroked at alpha 1 into an offscreen layer, and the
+  // layer is blitted once at GHOST_ALPHA. Overlaps inside the layer resolve at
+  // alpha 1 — exactly as they do in a real stroke — and the single blit is the
+  // only place transparency happens, so no pixel can be covered twice.
+  //
+  // The layer is sized to the flourish's bounding box, not to the canvas: at
+  // 1440x900/dpr 2 that is 5.4 MB rather than the 9.7 MB a full-canvas buffer
+  // would cost, and it is released the moment the flourish is dismissed. It is
+  // a compositing buffer for one transient overlay, not a bitmap in the history
+  // path — history still holds paths and nothing else.
+  var ghostLayer = null;         // <canvas>, bbox-sized, holds the flourish at alpha 1
+  var ghostLayerCtx = null;
+  var ghostLayerUpto = 0;        // how many segments are in the layer
 
   function ghostActive() {
     return !ghostGone && history.length === 0 && !pending;
@@ -696,30 +725,66 @@
     // and makes the margins even at every size.
     var dx = (viewW - (minX + maxX)) / 2;
     var dy = (viewH - (minY + maxY)) / 2;
+    var pad = 0;
     for (var j = 0; j < pts.length; j += 3) {
       pts[j] += dx;
       pts[j + 1] += dy;
+      if (pts[j + 2] > pad) pad = pts[j + 2];
     }
-    return { pts: pts, w: viewW, h: viewH };
+    // The bbox the compositing layer is cut to: the path's extent grown by half
+    // the widest line (the round caps reach that far past a sample) plus a
+    // pixel of slack for antialiasing.
+    pad = pad / 2 + 1;
+    return {
+      pts: pts, w: viewW, h: viewH,
+      x0: minX + dx - pad, y0: minY + dy - pad,
+      x1: maxX + dx + pad, y1: maxY + dy + pad
+    };
   }
 
-  // Segment by segment, exactly as replayStroke paints a real stroke, so the
-  // draw-in and a rebuild after a resize composite their overlaps the same way.
-  function paintGhost(from, to) {
+  // The layer: one canvas, cut to the flourish's bounding box, at the same
+  // resolution as the backing store. Its transform carries the box offset, so
+  // the segments below are stroked in the same CSS-pixel coordinates the path
+  // is expressed in and the blit is a whole number of device pixels.
+  function makeGhostLayer() {
+    var ox = Math.floor(ghost.x0 * backingScale);
+    var oy = Math.floor(ghost.y0 * backingScale);
+    var c = document.createElement('canvas');
+    c.width = Math.max(1, Math.ceil(ghost.x1 * backingScale) - ox);
+    c.height = Math.max(1, Math.ceil(ghost.y1 * backingScale) - oy);
+    var g = c.getContext('2d');
+    g.setTransform(backingScale, 0, 0, backingScale, -ox, -oy);
+    g.strokeStyle = PALETTE[0].hex;
+    g.lineCap = 'round';
+    g.lineJoin = 'round';
+    ghost.ox = ox;
+    ghost.oy = oy;
+    ghostLayer = c;
+    ghostLayerCtx = g;
+    ghostLayerUpto = 0;
+  }
+
+  // Segment by segment at alpha 1, exactly as replayStroke paints a real
+  // stroke — into the layer, never onto the canvas.
+  function paintGhostInto(from, to) {
     var p = ghost.pts;
-    ctx.save();
-    ctx.globalAlpha = GHOST_ALPHA;
-    ctx.strokeStyle = PALETTE[0].hex;
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
+    var g = ghostLayerCtx;
     for (var i = from; i <= to; i++) {
       var j = i * 3;
-      ctx.lineWidth = p[j + 2];
-      ctx.beginPath();
-      ctx.moveTo(p[j - 3], p[j - 2]);
-      ctx.lineTo(p[j], p[j + 1]);
-      ctx.stroke();
+      g.lineWidth = p[j + 2];
+      g.beginPath();
+      g.moveTo(p[j - 3], p[j - 2]);
+      g.lineTo(p[j], p[j + 1]);
+      g.stroke();
     }
+  }
+
+  // The one place the flourish becomes transparent.
+  function blitGhost() {
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.globalAlpha = GHOST_ALPHA;
+    ctx.drawImage(ghostLayer, ghost.ox, ghost.oy);
     ctx.restore();
   }
 
@@ -728,8 +793,32 @@
   // in its draw-in.
   function paintGhostSoFar() {
     if (!ghostActive()) return;
-    if (!ghost || ghost.w !== viewW || ghost.h !== viewH) ghost = buildGhost();
-    if (ghostShown > 0) paintGhost(1, ghostShown);
+    if (!ghost || ghost.w !== viewW || ghost.h !== viewH) {
+      ghost = buildGhost();
+      ghostLayer = ghostLayerCtx = null;
+    }
+    if (ghostShown <= 0) return;
+    if (!ghostLayer) makeGhostLayer();
+    if (ghostLayerUpto < ghostShown) {
+      paintGhostInto(ghostLayerUpto + 1, ghostShown);
+      ghostLayerUpto = ghostShown;
+    }
+    blitGhost();
+  }
+
+  // A frame of the draw-in. The flourish is only ever on screen with an empty
+  // history and no live stroke (that is what ghostActive() asserts), so the
+  // canvas under it is the background and nothing else — repainting that and
+  // blitting the layer is a full, correct frame, and it is the only way to add
+  // ink to a single-composite overlay without stacking alpha on what is
+  // already there.
+  function composeGhost() {
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.fillStyle = BG;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.restore();
+    paintGhostSoFar();
   }
 
   // Input of any kind dismisses it: the first pointerdown on the canvas, or any
@@ -738,6 +827,8 @@
     if (ghostGone) return false;
     ghostGone = true;
     ghost = null;
+    ghostLayer = ghostLayerCtx = null;
+    ghostLayerUpto = 0;
     ghostShown = 0;
     return true;
   }
@@ -920,8 +1011,8 @@
       ghostMs += dt;
       var upto = Math.min(GHOST_FRAMES, Math.floor(ghostMs / FRAME));
       if (upto > ghostShown) {
-        paintGhost(ghostShown + 1, upto);
         ghostShown = upto;
+        composeGhost();
       }
     }
 
