@@ -320,9 +320,21 @@ obvious in a screenshot.
       Not a history entry, not undoable, not ink for `hasInk()`, never in an
       export. It is repainted from `redraw()` *after* the history it stands in
       for and recorded nowhere, so a resize or a dpr change rebuilds it against
-      the new canvas at the same point in its draw-in. Its amplitudes are
-      measured in orbit radii and then clamped to the canvas, so the
-      composition is the same drawing at every size.
+      the new canvas at the same point in its draw-in. "The new canvas" means
+      its CSS size *and* its backing resolution, and for one cycle it did not:
+      the compositing layer added below bakes the resolution and the
+      device-pixel blit offsets, and only the CSS size was in the invalidation
+      test, so a dpr change at a constant CSS size re-blitted a stale layer at
+      stale offsets — at 1440x900 dpr 2→1 the figure doubled to
+      `[882,1439,164,649]`, clipped at the right edge and crossed the hint, and
+      never recovered until a CSS-size resize. The resolution is now recorded
+      on the layout and invalidated with the size. Re-driven at rest and
+      mid-draw-in, 2→1, 1→2 and every fractional step 1 → 1.25 → 1.5 → 1.75 →
+      2, through the `watchDpr` path (0 resize events fired): bbox moves at
+      most 0.6 css px, and a mid-draw-in change lands pixel-identical to a page
+      that was at the new dpr all along. Its amplitudes are measured in orbit
+      radii and then clamped to the canvas, so the composition is the same
+      drawing at every size.
 - [x] It composites **once**. The first pass stroked all 144 segments onto the
       canvas under `globalAlpha = 0.42`, so every round cap overprinted its
       predecessor and the alpha stacked as `1-(1-0.42)^n`: max luminance down
@@ -358,12 +370,30 @@ obvious in a screenshot.
       text box was flourish ink at 375x667, 6.3% of it at R≥150, and a glyph
       over a bead measured 1.07:1. `buildGhost` now measures the hint's text
       box — a Range over its contents, so a two-line hint at 320px is measured
-      as two lines — takes the taller strip that leaves, and centres the figure
-      in it, reducing the script's vertical amplitude if the figure will not
-      fit. The orbit radius is never touched: shrinking that would misrepresent
-      the pen. Measured share of the hint's text box that is flourish ink,
-      after: 0.00% at 1440x900, 1200x800, 1024x768, 667x375, 600x300, 375x667
-      and 320x568.
+      as two lines — and takes the taller strip that leaves, reducing the
+      script's vertical amplitude if the figure will not fit. The orbit radius
+      is never touched: shrinking that would misrepresent the pen. Measured
+      share of the hint's text box that is flourish ink, after: 0.00% at
+      1440x900, 1200x800, 1024x768, 667x375, 600x300, 375x667 and 320x568, and
+      0.00% at every 200 ms sample through the draw-in at dpr 1 and dpr 2.
+- [x] And it is placed rather than parked. Two things were wrong with where the
+      routing left it. The hint is centred on the canvas, so the two strips are
+      equal to within subpixel rounding and "the taller strip" always answered
+      "above" — the figure sat 24% down a 1440x900 canvas with 518 px of dead
+      canvas below it, at every size. A tie is now broken toward the lower
+      strip, the one nearer the page's optical centre (the control bar sits
+      below the canvas: 28 px at 1440x900, 54 px at 667x375); a strip that
+      really is taller still wins on height. And the figure was centred in its
+      strip with only its centreline measured, so the ink hung past the fit and
+      past the margin — 7 px of top margin inside a 10 px `GHOST_EDGE_GAP` at
+      667x375 and 600x300. Placement now centres the *ink* on the canvas and
+      slides it only as far as the hint requires, and the fit loop measures the
+      ink too. Vertical centre, before → after, at 1440x900 / 1200x800 /
+      1024x768 / 667x375 / 600x300 / 375x667 / 320x568: 24.1 → 67.4, 24.0 →
+      69.7, 24.0 → 70.6, 22.2 → 77.4, 21.2 → 78.5, 23.6 → 69.1, 22.0 → 73.6 %
+      of canvas height — every one nearer the middle, with the dead canvas
+      moved off the side the control bar is on. Smallest edge margin 7 px →
+      12 px; smallest clearance to the hint's text box 12 px → 14.5 px.
 - [x] No cusp in the curve. A hard notch sat on the left of the figure at every
       size — half a line width of jog, reading as a rendering glitch. It was
       the pen stalling: drawn pen speed is the centre's speed plus the orbit's
@@ -407,7 +437,16 @@ obvious in a screenshot.
       the name cannot outlive what it describes: Chrome reports "one faint
       stroke the toy drew itself…" while it is up, then "1 stroke", "2
       strokes", "1 stroke" after Undo, "empty" after undoing to nothing and
-      after Clear.
+      after Clear. The *description* did outlive what it described for one
+      cycle: the hint goes away by fading to `opacity: 0`, which leaves it in
+      the accessibility tree, so after a stroke the canvas still carried "press
+      and drag — the pen orbits you" as its description and the sentence was
+      still there to be read as page text. The hint now leaves the tree with
+      the pixels and the canvas drops the `aria-describedby` with it, on the
+      same state change that toggles the class. Read back off Chromium's
+      accessibility tree at 1440x900: description present on load, absent after
+      one stroke (and the sentence gone from the tree entirely), back as
+      "undone — press ↷ to bring it back" after Ctrl+Z.
 - [x] `Saved ✓` cannot land on a disabled button (day-006 residual). The ink
       question is asked again inside the `toBlob` callback, on the far side of
       the encode. `save.click(); clear.click();` in one task leaves the label
@@ -446,7 +485,12 @@ obvious in a screenshot.
       1024x768 dpr 1.5, 375x667 at dpr 2 and 3, 320x568 dpr 2, 667x375 dpr 2,
       600x300 dpr 1) across all three pens and five colours, each run three
       ways — from a cold load, with the flourish live at `pointerdown`, and
-      with an undo+redo replay after the stroke.
+      with an undo+redo replay after the stroke. Re-proved from scratch after
+      cycle 2's three code fixes with an independently written harness of the
+      same shape: 24 comparisons against `c84b362` (1440x900 at dpr 1 and 2,
+      1200x800 dpr 2, 1024x768 dpr 1.5, 375x667 at dpr 2 and 3, 320x568 dpr 2,
+      667x375 dpr 2, each with `orbit`/warm white, `coil`/sky blue and
+      `drift`/gold, gesture carried through the full settle), all identical.
 
 ## Open threads
 
