@@ -349,7 +349,7 @@ obvious in a screenshot.
 - [x] And it is fainter than the page's instruction at every size. Re-measured
       this pass, because the figure recorded here first (5.76:1 for the hint)
       was asserted rather than measured and is not a number this CSS can
-      produce — it is what alpha 0.56 would give, and the hint is at 0.55.
+      produce: the nearest alpha, 0.56, gives 5.74:1, and the hint is at 0.55.
       Both sides were taken off the built page. The flourish: the modal inked
       pixel is rgb(113,110,106) at 1440x900 dpr 1 and dpr 2, 375x667 dpr 2 and
       320x568 dpr 2 alike, which is **3.72:1** against `#111` (the 3.74 here
@@ -493,6 +493,22 @@ obvious in a screenshot.
       `drift`/gold, gesture carried through the full settle), all identical.
 
 ## Open threads
+
+- **The flourish clips its own edge on a canvas under about 250 px tall.**
+  Found by the independent post-loop pass of 2026-08-02, after the loop cap was
+  spent, so it is recorded rather than fixed. The cycle-3 placement change
+  (`17af159`) improved every size at or above 375x250 — min edge margin 7 → 13 px
+  — but the tie-break it flipped costs margin at the very bottom of the range,
+  where the control bar wraps to three rows and the canvas is left about 83 px
+  tall. Measured at 375x240 dpr 1: min edge margin 5.0 px on `3ee0181` with 0
+  clipped pixels, 1.0 px on `4c91833` with 26 pixels on the boundary; 320x240
+  clips 65. The threshold is sharp — 375x250 is clean and better than before.
+  At 200 px of viewport height (canvas ~43 px) the figure is pushed off-canvas
+  and draws nothing at all, where the old build drew 159 px that crossed the
+  hint: a wash at best, and arguably the better failure. No shipping phone is
+  this short in either orientation, which is why it did not block. The fix is a
+  placement pass that treats the fit as unsatisfiable below a minimum band
+  height and skips the flourish outright rather than squeezing it.
 
 - **Canvas-scaled orbit radius, and the edge loss it does not remove.** Not in
   the increment spec; added during the fix cycle because `drift`'s 95 px radius
