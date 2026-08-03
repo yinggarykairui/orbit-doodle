@@ -423,10 +423,20 @@
     pending = null;
   }
 
-  // dismissGhost() here covers the keyboard shortcuts; the buttons are covered
-  // by the listener on the control bar. Either way the redraw below erases it.
-  function undo() { dismissGhost(); endStroke(); if (cursor > 0) cursor--; redraw(); }
-  function redo() { dismissGhost(); endStroke(); if (cursor < history.length) cursor++; redraw(); }
+  // Both doors — the buttons and the keyboard shortcuts — land here, and both
+  // start by asking whether there is anything to do. Ctrl+Z on an empty history
+  // is a no-op, and a no-op is not input: it used to dismiss the opening
+  // flourish anyway, which meant a keystroke that changed nothing on the canvas
+  // wiped the one thing that was on it. A stroke in progress counts as
+  // something to do, because either action ends it.
+  function undo() {
+    if (cursor === 0 && !pending) return;
+    dismissGhost(); endStroke(); if (cursor > 0) cursor--; redraw();
+  }
+  function redo() {
+    if (cursor === history.length && !pending) return;
+    dismissGhost(); endStroke(); if (cursor < history.length) cursor++; redraw();
+  }
 
   // Does any of this stroke land on the canvas as it is sized right now?
   // Counting history entries is not the same question: replay preserves art a
@@ -944,8 +954,12 @@
     b.style.background = color.hex;
     b.setAttribute('aria-label', color.name);
     b.addEventListener('click', function () {
+      // Picking the colour that is already picked changes nothing, so it is not
+      // input and must not dismiss the opening flourish.
+      if (strokeColor === color.hex) return;
       strokeColor = color.hex;
       select(swatchGroup, b);
+      if (dismissGhost()) redraw();
     });
     swatchGroup.appendChild(b);
   });
@@ -959,8 +973,10 @@
     b.textContent = id;
     b.setAttribute('aria-label', 'pen ' + id);
     b.addEventListener('click', function () {
+      if (penId === id) return; // already this pen: nothing happens, nothing is dismissed
       penId = id;
       select(penGroup, b);
+      if (dismissGhost()) redraw();
     });
     penGroup.appendChild(b);
   });
@@ -1021,10 +1037,12 @@
   }
 
   canvas.addEventListener('pointerdown', function (e) {
-    // Before any other test: a press on the canvas is input, so the flourish
-    // goes now. redraw() here is the erase — this frame, not a fade.
-    if (dismissGhost()) redraw();
     if (e.button !== 0) return; // primary button only (touch/pen report 0)
+    // A primary press on the canvas is a press to draw, so the flourish goes
+    // now — redraw() here is the erase, this frame, not a fade. It is *after*
+    // the button test on purpose: a right-click opens a context menu and draws
+    // nothing, and used to take the flourish with it.
+    if (dismissGhost()) redraw();
     if (activePointerIsLive()) return; // first active pointer wins
     // A stale claim, or a tail still settling from the last release, is
     // committed here and the new gesture takes over: settling is interruptible.
@@ -1278,20 +1296,16 @@
     else if (mq.addListener) mq.addListener(onChange);
   })();
 
-  // Using any control is input too, so the flourish goes then as well —
-  // whichever way the control was reached. Capture, so it lands before the
-  // button's own handler; `click` covers keyboard activation, `pointerdown` a
-  // press that never becomes one. A colour or pen button does not redraw by
-  // itself, so this does.
-  // A button is the only thing in the bar that counts: its label is a text
-  // node, so the event target is always the button itself, and a stray tap on
-  // the bar's padding is not a control being used.
-  function dismissFromControls(e) {
-    if (e.target.tagName !== 'BUTTON') return;
-    if (dismissGhost()) redraw();
-  }
-  controls.addEventListener('pointerdown', dismissFromControls, true);
-  controls.addEventListener('click', dismissFromControls, true);
+  // Using a control is input too — but only a control that does something.
+  // This used to be one capture listener on the whole bar that fired for any
+  // button, reached any way, which made pressing the already-selected colour
+  // (or the already-selected pen) wipe the flourish for no change at all. The
+  // dismissal now lives inside the two handlers that can change anything while
+  // the flourish is up, on the same branch that makes the change: see the
+  // swatch and pen builders above. The other four controls are all disabled on
+  // an empty canvas, and Clear and Save PNG return early on `!hasInk()`
+  // anyway, so there is no path from them to a live flourish; Undo and Redo
+  // return early on an empty history, which is the D8 case they own.
 
   sizeCanvas();
   // Asked for stillness: the flourish is complete before the first paint and
