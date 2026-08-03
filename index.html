@@ -768,6 +768,18 @@
   // the union of its line boxes, so a hint that wraps to two lines at 320px is
   // measured as two lines, and a hint whose text changes is measured again on
   // the next build. The flourish takes the taller of the two strips left over.
+  //
+  // The two strips are almost never actually different heights: the hint is
+  // `inset: 0` on #stage with `align-items: center`, so its text box is centred
+  // on the canvas and the strips above and below it come out equal to within a
+  // fraction of a line box's subpixel rounding. That made the comparison below
+  // a formality that always answered "above", at every size — which is how the
+  // figure came to sit at 24% down a 1440x900 canvas with 518px of dead canvas
+  // under it. A tie is a genuine tie, so it is broken on the one thing that is
+  // not symmetric: the control bar sits below the canvas, so the page's optical
+  // centre is below the canvas's (28px at 1440x900, 54px at 667x375) and the
+  // lower strip is the one nearer it. `>` rather than `>=` is the whole change;
+  // a strip that is really taller still wins on height.
   function ghostBand() {
     var top = GHOST_EDGE_GAP;
     var bottom = viewH - GHOST_EDGE_GAP;
@@ -780,7 +792,7 @@
     if (!hb) return { top: top, bottom: bottom };
     var above = { top: top, bottom: Math.min(bottom, hb.top - GHOST_HINT_GAP) };
     var below = { top: Math.max(top, hb.bottom + GHOST_HINT_GAP), bottom: bottom };
-    return (above.bottom - above.top) >= (below.bottom - below.top) ? above : below;
+    return (above.bottom - above.top) > (below.bottom - below.top) ? above : below;
   }
 
   // The physics of `tick`, run at exactly one 60fps frame per step (frames === 1,
@@ -816,6 +828,19 @@
     return { pts: pts, minX: minX, maxX: maxX, minY: minY, maxY: maxY };
   }
 
+  // How far the ink reaches past the sample points, on every side: half the
+  // widest line in the path (the round caps put it there) plus a pixel of slack
+  // for antialiasing. Everything that measures the figure has to measure it
+  // this way — fitting the bare centreline is what let the ink hang over the
+  // edge gap, 7px of top margin inside a 10px GHOST_EDGE_GAP at 667x375 and at
+  // 600x300, with the figure's own line sitting closer to the edge than the gap
+  // that exists to keep it away.
+  function ghostInkPad(g) {
+    var p = g.pts, w = 0;
+    for (var j = 2; j < p.length; j += 3) if (p[j] > w) w = p[j];
+    return w / 2 + 1;
+  }
+
   function buildGhost() {
     var pen = scaledPen(PENS.orbit);
     var ax = Math.min(pen.radius * 7.2, viewW * 0.30);
@@ -823,6 +848,7 @@
     var band = ghostBand();
     var avail = band.bottom - band.top;
     var g = ghostPath(pen, ax, ay);
+    var pad = ghostInkPad(g);
     // The figure is roughly 2*ay tall plus the orbit's own diameter, so taking
     // half the overflow off ay lands within a pixel or two of fitting and the
     // loop converges in one pass at every size tested. The bound is what makes
@@ -830,29 +856,39 @@
     // which is still the pen's line — the orbit radius is never touched,
     // because shrinking that would misrepresent the pen the toy actually draws
     // with.
-    for (var n = 0; n < 8 && (g.maxY - g.minY) > avail && ay > 0; n++) {
-      ay = Math.max(0, ay - ((g.maxY - g.minY) - avail) / 2 - 0.5);
+    for (var n = 0; n < 8 && (g.maxY - g.minY) + 2 * pad > avail && ay > 0; n++) {
+      ay = Math.max(0, ay - (((g.maxY - g.minY) + 2 * pad) - avail) / 2 - 0.5);
       g = ghostPath(pen, ax, ay);
+      pad = ghostInkPad(g);
     }
     var pts = g.pts;
     var minX = g.minX, maxX = g.maxX, minY = g.minY, maxY = g.maxY;
     // Centre the result, not the script. The orbit centre trails the pointer,
     // so the ink lands a little behind the figure that produced it — 58px left
     // of centre at 1440x900. Translating by the measured offset costs one pass
-    // and makes the margins even at every size. Horizontally that is the
-    // canvas; vertically it is the band, which is what keeps the hint clear.
+    // and makes the margins even at every size.
     var dx = (viewW - (minX + maxX)) / 2;
-    var dy = (band.top + band.bottom - (minY + maxY)) / 2;
-    var pad = 0;
+    // Vertically the target is the canvas, not the band: centre the ink on the
+    // canvas and then slide it the shortest distance that puts it wholly inside
+    // the band. Centring in the band instead parked the figure in the middle of
+    // its half and pushed it away from the canvas centre for no reason — at
+    // 1440x900 that was 82px of margin above and 518px of dead canvas below.
+    // Sliding only as far as the hint requires keeps the figure as near the
+    // middle of the picture as the hint leaves room for. The bottom clamp is
+    // applied first so the top edge of the band wins a conflict: for the lower
+    // strip that edge is the hint gap, which is the one margin that must not be
+    // eaten.
+    var h = (maxY - minY) + 2 * pad;
+    var place = (viewH - h) / 2;
+    if (place + h > band.bottom) place = band.bottom - h;
+    if (place < band.top) place = band.top;
+    var dy = place + pad - minY;
     for (var j = 0; j < pts.length; j += 3) {
       pts[j] += dx;
       pts[j + 1] += dy;
-      if (pts[j + 2] > pad) pad = pts[j + 2];
     }
-    // The bbox the compositing layer is cut to: the path's extent grown by half
-    // the widest line (the round caps reach that far past a sample) plus a
-    // pixel of slack for antialiasing.
-    pad = pad / 2 + 1;
+    // The bbox the compositing layer is cut to: the path's extent grown by the
+    // ink's reach past it.
     return {
       // `scale` is the backing resolution this layout was built for. The path
       // is in CSS pixels and does not depend on it, but the compositing layer
