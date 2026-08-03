@@ -83,8 +83,12 @@ here:
   every control that could observe it is already disabled for other reasons.
 - **How does it get out of the way?** The first `pointerdown` on the canvas
   erases it within one frame, and it never returns for the life of the page.
-  Using any control dismisses it too — the ghost is a first-run state, not a
-  mode.
+  A control dismisses it too, but only a control that actually changes
+  something: picking a *different* colour or a *different* pen. Pressing the
+  swatch or the pen that is already active changes nothing, so it dismisses
+  nothing — measured, the flourish is still at full ink afterwards. The other
+  four controls are all disabled on an empty canvas, so no path runs from them
+  to a live flourish. The ghost is a first-run state, not a mode.
 
 In scope:
 
