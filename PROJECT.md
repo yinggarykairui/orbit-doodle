@@ -334,10 +334,24 @@ obvious in a screenshot.
       a real stroke — and the layer is blitted once. Measured after: every
       inked pixel reads R=113, `min = p50 = p90 = max`, at 1440x900, 1200x800,
       1024x768, 375x667 and 320x568 alike.
-- [x] And it is fainter than the page's instruction at every size. That flat
-      R=113 is 3.74:1 against the background, against the hint's 5.76:1 — the
-      demonstration sits below the instruction in the visual hierarchy
-      everywhere, where before it beat it 7.7:1 to 5.7:1 at phone width and the
+- [x] And it is fainter than the page's instruction at every size. Re-measured
+      this pass, because the figure recorded here first (5.76:1 for the hint)
+      was asserted rather than measured and is not a number this CSS can
+      produce — it is what alpha 0.56 would give, and the hint is at 0.55.
+      Both sides were taken off the built page. The flourish: the modal inked
+      pixel is rgb(113,110,106) at 1440x900 dpr 1 and dpr 2, 375x667 dpr 2 and
+      320x568 dpr 2 alike, which is **3.72:1** against `#111` (the 3.74 here
+      before came of treating that pixel as a neutral grey 113). The hint: a
+      clipped screenshot of the text box decoded back through a canvas gives a
+      fully-covered glyph of rgb(142,138,133) at dpr 1 and dpr 2 alike, which
+      is **5.51:1**; computing the same colour from the CSS instead —
+      `rgba(245,239,230,0.55)` over `#111` — gives 142.40,139.10,134.15 and
+      **5.58:1**. The two disagree by one 8-bit step on green and blue, which
+      is Chromium's compositor truncating where the arithmetic rounds; 5.51 is
+      what is on the screen and 5.58 is what the stylesheet asks for. Either
+      way the conclusion is the same one and it is not close: the
+      demonstration sits below the instruction in the visual hierarchy at every
+      size, where before it beat it 7.7:1 to 5.7:1 at phone width and the
       README's word "faint" was measurably false there.
 - [x] It is routed clear of the hint. Both were centred in `#stage`, so the
       figure walked through the page's only instruction: 11.3% of the hint's
