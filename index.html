@@ -689,6 +689,28 @@
   // the flourish and the canvas edges.
   var GHOST_HINT_GAP = 14;
   var GHOST_EDGE_GAP = 10;
+  // Where on its orbit the pen starts. The pen's drawn speed is the centre's
+  // speed plus the orbit's own tangential speed (radius * angVel, 8.80 px per
+  // frame for `orbit` at full scale); when the two are equal and opposing, the
+  // pen stops dead and reverses, and the ink shows a cusp — a hard notch, half
+  // a line width of jog, that reads as a rendering glitch rather than as
+  // anything the pen did. The figure decelerates through exactly that speed on
+  // the left turn, so it hit one there at every size: pen speed fell to 0.96 px
+  // per frame at 1440x900 (0.11 of the orbit's own) and to 0.08 px at 375x667,
+  // with a 132-degree turn between two adjacent samples.
+  //
+  // Nothing about the pen can move — these are `orbit`'s constants. What can
+  // move is the phase: `ang` advances by a fixed angVel per frame, so the
+  // starting angle chooses which side of its orbit the pen is on when the
+  // centre coasts through that speed. Starting the pen on the far side of the
+  // orbit puts it broadside there instead of head-on. Swept over the whole
+  // circle at seven canvas sizes, the minimum drawn pen speed is worst at 0
+  // (0.016 of the orbital speed at phone width) and sits on a broad plateau
+  // from about 160 to 225 degrees; pi is in the middle of it and is the one
+  // value with a reason. After: minimum pen speed 3.05 px per frame at
+  // 1440x900 (0.35), 2.75 px at 375x667 (0.53), sharpest turn between adjacent
+  // samples 39-42 degrees rather than 82-132.
+  var GHOST_START_ANGLE = Math.PI;
 
   // The strip of canvas the flourish is allowed to occupy. Both it and the hint
   // used to be centred in #stage, so the figure walked straight through the
@@ -725,8 +747,8 @@
 
     var s = 0;
     var cx = px_(0), cy = py_(0);
-    var ang = 0;
-    var px = cx + pen.radius, py = cy;   // cos(0), sin(0)
+    var ang = GHOST_START_ANGLE;
+    var px = cx + pen.radius * Math.cos(ang), py = cy + pen.radius * Math.sin(ang);
     var w = pen.wMax;
     var pts = [px, py, w];
     var minX = px, maxX = px, minY = py, maxY = py;
