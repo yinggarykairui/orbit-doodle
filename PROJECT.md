@@ -477,8 +477,9 @@ obvious in a screenshot.
 
 - **The flourish's compositing layer is the one bitmap in the build.** Drawing
   it once at one alpha means an offscreen canvas — cut to the figure's bounding
-  box rather than the canvas, 5.4 MB at 1440x900/dpr 2 against the 9.7 MB a
-  full-canvas buffer would cost, released the moment the flourish is dismissed.
+  box rather than the canvas, so 1117x486 and 2.1 MB at 1440x900/dpr 2 against
+  the 18.5 MB the 2880x1686 backing store would cost, and 0.5 MB against 2.9 MB
+  at 375x667/dpr 2 — released the moment the flourish is dismissed.
   It is a transient compositing buffer for a view-only overlay, not a bitmap in
   the history path, and the "history holds no bitmaps" rule above is unchanged.
   It is recorded here because it is the only allocation of its kind in the file

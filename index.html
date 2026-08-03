@@ -702,9 +702,10 @@
   // only place transparency happens, so no pixel can be covered twice.
   //
   // The layer is sized to the flourish's bounding box, not to the canvas: at
-  // 1440x900/dpr 2 that is 5.4 MB rather than the 9.7 MB a full-canvas buffer
-  // would cost, and it is released the moment the flourish is dismissed. It is
-  // a compositing buffer for one transient overlay, not a bitmap in the history
+  // 1440x900/dpr 2 that is a 1117x486 buffer, 2.1 MB, against the 18.5 MB the
+  // 2880x1686 backing store would cost (0.5 MB against 2.9 MB at 375x667/dpr
+  // 2), and it is released the moment the flourish is dismissed. It is a
+  // compositing buffer for one transient overlay, not a bitmap in the history
   // path — history still holds paths and nothing else.
   var ghostLayer = null;         // <canvas>, bbox-sized, holds the flourish at alpha 1
   var ghostLayerCtx = null;
