@@ -265,9 +265,10 @@ close it. Lines a later pass reopened say so.
 - [~] Save PNG acknowledges in-page (label + `aria-live`), and the ack is
       transient text rather than a rename: the button keeps a fixed
       `aria-label`. The third pass also meant to drop the ack when the canvas
-      empties inside the 1.6 s window; that half is **not** closed, and the
-      line here claiming it was has been corrected. See the open thread below —
-      a fourth independent verifier reproduced the dimmed `Saved ✓`.
+      empties inside the 1.6 s window; that half is **not** closed as of day
+      006, and the line here claiming it was has been corrected. A fourth
+      independent verifier reproduced the dimmed `Saved ✓`; it was carried as
+      an open thread until increment 3 closed it (see day 009 below).
 - [x] Chrome tells the truth when the art is off-canvas — **and only when it
       is** (reopened and closed on the third pass). The first version asked the
       question of every entry in the list, so an emptiness that Undo or Clear
@@ -299,6 +300,124 @@ close it. Lines a later pass reopened say so.
       have — is now the image's alt text, which keeps the words and the
       template order both
 
+**Increment 3 (day 009)** — the opening flourish, plus the three day-006
+residuals that were recorded rather than fixed. The feature shipped and then
+went through a fix cycle the same day: three independent critics raised ten
+defects against it, six of them against the flourish itself. The lines below
+say what stands after that cycle, not what the first pass wrote; every one was
+checked by driving the build, and the compositing lines were checked by looking
+at the pixels, because the first pass's bug was invisible in the diff and
+obvious in a screenshot.
+
+- [x] The opening flourish. With history empty and no input received, a
+      scripted figure-eight pointer path is fed through the real `orbit`
+      physics — one fixed 60fps step per sample, so `frames === 1` and the lerp
+      is `pen.chase` itself — and drawn in over 144 frames (2.4 s), then rests.
+      Not a history entry, not undoable, not ink for `hasInk()`, never in an
+      export. It is repainted from `redraw()` *after* the history it stands in
+      for and recorded nowhere, so a resize or a dpr change rebuilds it against
+      the new canvas at the same point in its draw-in. Its amplitudes are
+      measured in orbit radii and then clamped to the canvas, so the
+      composition is the same drawing at every size.
+- [x] It composites **once**. The first pass stroked all 144 segments onto the
+      canvas under `globalAlpha = 0.42`, so every round cap overprinted its
+      predecessor and the alpha stacked as `1-(1-0.42)^n`: max luminance down
+      the thick left loop alternated 112 / 168 on a ~3.5 css-px period at
+      1200x800/dpr 2, and at 375x667 the caps stacked 4–5 deep and the median
+      ink read 168. A string of pearls, from the one feature whose whole job is
+      to show what the toy's line looks like. The segments now go into an
+      offscreen layer at alpha 1 — where overlaps resolve exactly as they do in
+      a real stroke — and the layer is blitted once. Measured after: every
+      inked pixel reads R=113, `min = p50 = p90 = max`, at 1440x900, 1200x800,
+      1024x768, 375x667 and 320x568 alike.
+- [x] And it is fainter than the page's instruction at every size. That flat
+      R=113 is 3.74:1 against the background, against the hint's 5.76:1 — the
+      demonstration sits below the instruction in the visual hierarchy
+      everywhere, where before it beat it 7.7:1 to 5.7:1 at phone width and the
+      README's word "faint" was measurably false there.
+- [x] It is routed clear of the hint. Both were centred in `#stage`, so the
+      figure walked through the page's only instruction: 11.3% of the hint's
+      text box was flourish ink at 375x667, 6.3% of it at R≥150, and a glyph
+      over a bead measured 1.07:1. `buildGhost` now measures the hint's text
+      box — a Range over its contents, so a two-line hint at 320px is measured
+      as two lines — takes the taller strip that leaves, and centres the figure
+      in it, reducing the script's vertical amplitude if the figure will not
+      fit. The orbit radius is never touched: shrinking that would misrepresent
+      the pen. Measured share of the hint's text box that is flourish ink,
+      after: 0.00% at 1440x900, 1200x800, 1024x768, 667x375, 600x300, 375x667
+      and 320x568.
+- [x] No cusp in the curve. A hard notch sat on the left of the figure at every
+      size — half a line width of jog, reading as a rendering glitch. It was
+      the pen stalling: drawn pen speed is the centre's speed plus the orbit's
+      own tangential speed (`radius * angVel`, 8.80 px/frame for `orbit`), and
+      where those are equal and opposing the pen reverses. Pen speed fell to
+      0.96 px/frame at 1440x900 and 0.08 px/frame at 375x667. The pen's
+      constants cannot move; the starting orbit angle can, and it decides which
+      side of its orbit the pen is on when the centre coasts through that
+      speed. Swept over the whole circle at seven canvas sizes: 0 is the worst
+      value there is, and there is a plateau from ~160° to ~225°. π is the
+      middle of it and the one value with a reason — the pen starts on the far
+      side of its orbit, broadside to the turn. After: minimum drawn pen speed
+      3.05 px/frame at 1440x900 (0.35 of the orbital speed) and 2.75 px at
+      375x667 (0.53), sharpest turn between adjacent samples 39–42° rather than
+      82–132°.
+- [x] Reduced motion, on load *and* at runtime. Under
+      `prefers-reduced-motion: reduce` the flourish is complete before the
+      first paint and nothing animates. The query was sampled once at init and
+      never watched, so flipping it 30 frames into the draw-in changed nothing
+      (ink kept climbing 2344 → 3238 → 3929 over the next 20 frames); it is now
+      watched, and a change to `reduce` *finishes* the flourish rather than
+      freezing it half-drawn — 9819 inked px 500 ms in, 36604 within one frame
+      of the toggle, which is exactly what a page loaded with `reduce` renders.
+- [x] Only input that does something dismisses it. The first pass dismissed on
+      any `pointerdown` on the canvas (so a right-click did), on any
+      `undo()`/`redo()` (so Ctrl+Z against an empty history did), and on any
+      button in the bar (so pressing the already-selected colour or pen did).
+      The two history actions now return early when there is nothing to do, the
+      canvas dismisses after the primary-button test, and the bar's blanket
+      listener is gone — the swatch and pen handlers dismiss on the branch that
+      changes the selection. Measured at 1200x800/dpr 2, inked px unchanged at
+      36604 for right-click, middle-click, Ctrl+Z / Ctrl+Y / Ctrl+Shift+Z on an
+      empty history, a click on the bar's padding, and the already-active
+      swatch and pen by pointer and by Enter; 36604 → 0 for a different swatch
+      or a different pen. A primary press still erases it in the same task as
+      the `pointerdown`, before the next frame.
+- [x] The canvas is in the accessibility tree. It had no `aria-label`, no role
+      and no fallback content, so nothing told a screen-reader user the page had
+      drawn anything. It is now `role="img"`, described by the hint, and named
+      from `updateChrome()` — the one place that already knows the state — so
+      the name cannot outlive what it describes: Chrome reports "one faint
+      stroke the toy drew itself…" while it is up, then "1 stroke", "2
+      strokes", "1 stroke" after Undo, "empty" after undoing to nothing and
+      after Clear.
+- [x] `Saved ✓` cannot land on a disabled button (day-006 residual). The ink
+      question is asked again inside the `toBlob` callback, on the far side of
+      the encode. `save.click(); clear.click();` in one task leaves the label
+      reading `Save PNG` on the disabled button.
+- [x] The off-canvas hint names a remedy the device has (day-006 residual). On
+      a touch device the copy is `off-canvas — rotate to bring it back`;
+      re-driven by drawing at the right edge of a 667x375 landscape phone and
+      rotating it to 375x667.
+- [x] A control that disables itself hands focus on (day-006 residual). Undo
+      pressed until it disables leaves focus on Redo; Clear pressed until it
+      disables leaves focus on Undo. Neither drops to `<body>`.
+- [x] README made true: the flourish described exactly as it behaves, including
+      that it is not part of the drawing and what does and does not dismiss it,
+      and both prose sections brought inside STYLE.md's sentence limits.
+- [x] Still one HTML file and exactly one network request at 1440x900, 375x667
+      and 320x568; console clean on every run above; no page scroll at 320 px
+      (scrollWidth 320 = clientWidth, scrollHeight 568 = clientHeight).
+- [x] Pixel identity re-proved after the compositing change, not assumed. A
+      harness installs a fake `requestAnimationFrame` before the page script
+      runs, so both builds integrate the same `dt` sequence, drives one scripted
+      90-sample gesture through real pointer events, and compares
+      `canvas.toDataURL()` against `c84b362`. 36 comparisons identical: 8
+      viewport/dpr combinations (1440x900 at dpr 1 and 2, 1200x800 dpr 2,
+      1024x768 dpr 1.5, 375x667 at dpr 2 and 3, 320x568 dpr 2, 667x375 dpr 2,
+      600x300 dpr 1) across all three pens and five colours, each run three
+      ways — from a cold load, with the flourish live at `pointerdown`, and
+      with an undo+redo replay after the stroke.
+
 ## Open threads
 
 - **Canvas-scaled orbit radius, and the edge loss it does not remove.** Not in
@@ -324,28 +443,6 @@ close it. Lines a later pass reopened say so.
   landing where the finger points. Both are design calls for an owner issue,
   not a fix cycle.
 
-- **`Saved ✓` can still land on a disabled button — a race, not a state bug.**
-  Found by the fourth independent pass of the 2026-07-30 evening shift, after
-  the loop cap was spent, so it is recorded rather than fixed. `ackSave()` runs
-  inside the asynchronous `canvas.toBlob` callback, while the guard that drops
-  the ack runs synchronously from `updateChrome()`. If the canvas empties during
-  the blob encode — measured at 47.4 ms at 1440x900/dpr 2, 20–21 ms at dpr 1 and
-  at 375x667 — the disable lands first and the ack lands after it, leaving a
-  dimmed `Saved ✓` for the rest of the 1.6 s timer. Reproduces at delays of
-  0–20 ms and reliably from `save.click(); clear.click();` in one task; clean at
-  40 ms. No state corruption: the exported PNG is correct (`toBlob` snapshots at
-  call time), the `aria-label` stays `Save PNG`, and it self-heals on the timer.
-  The fix is to re-ask the ink question inside the callback rather than only
-  before it.
-
-- **Two chrome nits from the same pass.** The `off-canvas — widen the window`
-  hint is reachable on a phone (320x568, or rotating 375x667 with a right-edge
-  stroke) where widening is not an affordance the device has — rotating is the
-  real remedy, and the copy should say something a phone can act on. And a
-  control that disables itself under the keyboard drops focus to `<body>`, so
-  the next Tab restarts at the first swatch; the pattern predates this shift on
-  the arrows and now extends to Clear and Save PNG.
-
 - **The three pens compress into one and a half on a phone.** Loop diameters,
   one slow horizontal drag per pen, widest column of ink: at 375x667 (canvas
   375x510) `coil` 19 px, `orbit` 53 px, `drift` 69 px; at 1440x900 (canvas
@@ -363,16 +460,45 @@ close it. Lines a later pass reopened say so.
   *is* on a phone (a smaller cap fraction, a `wMax` that scales with the radius,
   or a per-pen reference edge), and that is a design call with its own issue.
 
-- **First load shows nothing the toy makes.** A stranger who opens the page gets
-  a black rectangle, a control bar with two disabled arrows, and one line of
-  text — `press and drag — the pen orbits you`. Nothing on screen demonstrates
-  the flourish that is the entire point, so the toy asks for a gesture before it
-  has shown what a gesture buys. `screenshot.png` and the demo link carry that
-  job today, which works from the README and not at all from the URL. Not fixed
-  here: every answer is a feature — a seeded demo stroke, a ghost animation, a
-  first-run replay — and each adds state or motion the fence excludes. Its issue
-  has to settle whether the demo is undoable, whether it counts as ink for Clear
-  and Save PNG, and how it gets out of the way on the first pointerdown.
+- **What first load demonstrates is one pen, and only one.** The old thread
+  ("First load shows nothing the toy makes") is closed: increment 3 shipped the
+  opening flourish, and after the fix cycle it composites once, reads 3.74:1
+  against the background at every size, clears the hint's text box entirely,
+  and has no cusp left in it. What is narrower and still open is that it is
+  drawn with `orbit` alone. `coil` and `drift` sit named in the bar with
+  nothing on screen to say what either draws, and the phone thread above says
+  those two pens are the ones that compress into each other at 375 px — so the
+  size where the difference is hardest to see is also the size where nothing
+  demonstrates it. Not fixed here, and not a fix-cycle call: three flourishes
+  would be a demo reel, which the increment-3 fence excludes by name, and one
+  flourish per pen picked on first press is a different feature with its own
+  question (does picking a pen you have not used replay it?). It wants an owner
+  issue.
+
+- **The flourish's compositing layer is the one bitmap in the build.** Drawing
+  it once at one alpha means an offscreen canvas — cut to the figure's bounding
+  box rather than the canvas, 5.4 MB at 1440x900/dpr 2 against the 9.7 MB a
+  full-canvas buffer would cost, released the moment the flourish is dismissed.
+  It is a transient compositing buffer for a view-only overlay, not a bitmap in
+  the history path, and the "history holds no bitmaps" rule above is unchanged.
+  It is recorded here because it is the only allocation of its kind in the file
+  and the next person to read the memory notes deserves to find it. The
+  alternative that avoids it — one `Path2D` per constant-width run — does not
+  work for this path: the width changes on almost every one of the 144 samples,
+  so the runs are one segment long and the overlaps composite twice again.
+
+- **Two things about the flourish are tuned against a list of sizes, not
+  proved.** The start angle that removes the cusp (π) was chosen by sweeping
+  the whole circle at seven canvas sizes and taking the middle of the plateau;
+  the vertical-amplitude shrink that keeps the figure inside the strip beside
+  the hint converges by iteration, bounded at eight passes. Both were checked
+  at 1440x900, 1200x800, 1024x768, 667x375, 600x300, 375x667 and 320x568, and
+  the shrink has a floor that degrades to a flat run with the pen's loops still
+  on it rather than to something off-canvas. Neither is a proof for every
+  canvas size a browser can produce. The cheap guard if this ever bites — a
+  post-build assertion that the path clears the hint box and the edges, falling
+  back to no flourish — is a fix, not a feature, but nothing has been seen to
+  need it yet.
 
 - **Unbounded history, and replay is not free.** Nothing caps the entry list,
   and a redraw is every segment drawn since the last clear — so undo scales
