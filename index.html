@@ -182,7 +182,14 @@
 </head>
 <body>
 <div id="stage">
-  <canvas id="canvas"></canvas>
+  <!-- A bare <canvas> is a hole in the accessibility tree: no name, no role, no
+       fallback content, so nothing told a screen-reader user that the page had
+       drawn anything at all. `role="img"` is what the element is to a reader —
+       a picture — and the name is rewritten by updateChrome() from the same
+       state the buttons and the hint are drawn from, so it can never claim a
+       flourish that has been dismissed. The hint is the description: it is
+       already the sentence that says what to do here. -->
+  <canvas id="canvas" role="img" aria-label="drawing canvas — empty" aria-describedby="hint"></canvas>
   <div id="hint">press and drag — the pen orbits you</div>
 </div>
 <div id="controls">
@@ -596,6 +603,33 @@
       hintVisible = show;
       hint.classList.toggle('hidden', !show);
     }
+    nameCanvas();
+  }
+
+  // What the canvas is called in the accessibility tree. It is a description of
+  // what is on it, not a label for a widget, and it has to stay true as the
+  // state moves: the flourish clause is gated on ghostActive(), and every path
+  // that dismisses the flourish redraws, so the name loses that clause in the
+  // same frame the ink goes. Strokes are counted the way hasInk() counts them —
+  // only the ones the canvas is currently showing — so a narrowed window that
+  // has pushed the art off the edge reads "empty" here and "off-canvas" in the
+  // hint, which is the description, rather than the two contradicting.
+  var GHOST_NAME = 'drawing canvas — one faint stroke the toy drew itself, to ' +
+                   'show what its pen does; not part of your drawing';
+  function nameCanvas() {
+    var name;
+    if (ghostActive() && ghostShown > 0) {
+      name = GHOST_NAME;
+    } else {
+      var n = 0;
+      for (var i = visibleFrom(); i < cursor; i++) {
+        if (history[i].kind === 'stroke' && strokeVisible(history[i])) n++;
+      }
+      if (liveInk() && strokeVisible(pending)) n++;
+      name = n === 0 ? 'drawing canvas — empty'
+                     : 'drawing canvas — ' + n + (n === 1 ? ' stroke' : ' strokes');
+    }
+    if (canvas.getAttribute('aria-label') !== name) canvas.setAttribute('aria-label', name);
   }
 
   function replayStroke(s) {
@@ -1120,8 +1154,13 @@
       ghostMs += dt;
       var upto = Math.min(GHOST_FRAMES, Math.floor(ghostMs / FRAME));
       if (upto > ghostShown) {
+        var firstInk = ghostShown === 0;
         ghostShown = upto;
         composeGhost();
+        // composeGhost() is the animation's fast path and deliberately skips
+        // updateChrome(); the one thing that does change when the first segment
+        // lands is what the canvas is called, so say it then.
+        if (firstInk) nameCanvas();
       }
     }
 
