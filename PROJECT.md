@@ -422,6 +422,18 @@ obvious in a screenshot.
 - [x] README made true: the flourish described exactly as it behaves, including
       that it is not part of the drawing and what does and does not dismiss it,
       and both prose sections brought inside STYLE.md's sentence limits.
+- [x] `screenshot.png` recaptured from this increment's build, at `3ee0181`
+      (verified: 2400x1600 in the file, which is 1200x800 at
+      deviceScaleFactor 2). Three strokes, one per pen, each carried through
+      its settle so the closing curl the pen leaves is in frame: `drift` in
+      gold, `orbit` in warm white, `coil` in sky blue. It is a shot of the toy
+      being *used*, so the flourish has been dismissed and is deliberately not
+      in it — the increment's headline feature is the thing this image cannot
+      show, and the README's opening sentence is what carries it instead. The
+      alt text describes the drawing and the bar; there is no caption paragraph,
+      because STYLE.md's template has no slot for one. Today's flourish fixes
+      do not stale it: the flourish is not in the frame, and stroke rendering
+      is pixel-identical to `c84b362` (re-proved below).
 - [x] Still one HTML file and exactly one network request at 1440x900, 375x667
       and 320x568; console clean on every run above; no page scroll at 320 px
       (scrollWidth 320 = clientWidth, scrollHeight 568 = clientHeight).
