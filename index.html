@@ -894,6 +894,24 @@
     paintGhostSoFar();
   }
 
+  // `prefers-reduced-motion` is not a load-time constant — it can flip while
+  // the page is open, from an OS accessibility toggle or from devtools.
+  // Sampling it once at init left a draw-in running straight through the
+  // request: turning `reduce` on 30 frames in, the flourish kept adding ink
+  // (2344 -> 3238 -> 3929 inked px over the next 20 frames). Honouring it means
+  // *finishing* the flourish at once rather than freezing it half-drawn — a
+  // stranger who asked for stillness still sees the whole thing, which is
+  // exactly what the load-time branch does.
+  function finishGhostForStillness() {
+    if (!reduceMotion.matches) return;
+    if (!ghostActive() || ghostShown >= GHOST_FRAMES) return;
+    ghostShown = GHOST_FRAMES;
+    ghostMs = GHOST_FRAMES * FRAME;
+    redraw();
+  }
+  if (reduceMotion.addEventListener) reduceMotion.addEventListener('change', finishGhostForStillness);
+  else if (reduceMotion.addListener) reduceMotion.addListener(finishGhostForStillness);
+
   // Input of any kind dismisses it: the first pointerdown on the canvas, or any
   // use of any control. A first-run state, not a mode — it never returns.
   function dismissGhost() {
