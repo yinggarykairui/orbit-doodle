@@ -188,7 +188,10 @@
        a picture — and the name is rewritten by updateChrome() from the same
        state the buttons and the hint are drawn from, so it can never claim a
        flourish that has been dismissed. The hint is the description: it is
-       already the sentence that says what to do here. -->
+       already the sentence that says what to do here — for exactly as long as
+       it is on the screen. It fades out rather than being removed, so
+       updateChrome() takes it out of the accessibility tree and drops this
+       reference at the same moment, and puts both back when it returns. -->
   <canvas id="canvas" role="img" aria-label="drawing canvas — empty" aria-describedby="hint"></canvas>
   <div id="hint">press and drag — the pen orbits you</div>
 </div>
@@ -539,6 +542,25 @@
   var HINT_OFFCANVAS_TOUCH = 'off-canvas — rotate to bring it back';
   var touchOnly = window.matchMedia('(hover: none) and (pointer: coarse)');
   var hintVisible = true;
+  // The hint goes away by fading to `opacity: 0`, which is a visual state and
+  // nothing else: the element keeps its box, its text, and its place in the
+  // accessibility tree. So after one stroke the canvas still reported the name
+  // "drawing canvas — 1 stroke" with the description "press and drag — the pen
+  // orbits you", an instruction that is no longer on the screen and no longer
+  // the thing to do, and the sentence was still there to be read as page text
+  // in browse mode. The description has to track what is actually shown, so the
+  // hint leaves the tree with the pixels and the canvas drops the reference
+  // that pointed at it. It comes back the same way, on the same state change,
+  // because it is the same call.
+  function setHintExposed(on) {
+    if (on) {
+      hint.removeAttribute('aria-hidden');
+      canvas.setAttribute('aria-describedby', 'hint');
+    } else {
+      hint.setAttribute('aria-hidden', 'true');
+      canvas.removeAttribute('aria-describedby');
+    }
+  }
   // Buttons and hint always describe the real state — including on first load,
   // where both arrows start disabled, and mid-stroke, where the stroke in
   // progress is already undoable and has already doomed the redo tail.
@@ -602,6 +624,7 @@
     if (show !== hintVisible) {
       hintVisible = show;
       hint.classList.toggle('hidden', !show);
+      setHintExposed(show);
     }
     nameCanvas();
   }
