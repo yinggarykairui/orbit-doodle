@@ -854,7 +854,15 @@
     // pixel of slack for antialiasing.
     pad = pad / 2 + 1;
     return {
-      pts: pts, w: viewW, h: viewH,
+      // `scale` is the backing resolution this layout was built for. The path
+      // is in CSS pixels and does not depend on it, but the compositing layer
+      // does — its pixel size, its transform, and the device-pixel offsets the
+      // blit uses are all baked from it — so it is recorded here, beside the
+      // CSS size, and invalidated with it. Leaving it out was a real bug: a dpr
+      // change at a constant CSS size kept a stale-resolution layer and blitted
+      // it at stale offsets, so the figure doubled or halved and slid off its
+      // position until the next CSS-size resize.
+      pts: pts, w: viewW, h: viewH, scale: backingScale,
       x0: minX + dx - pad, y0: minY + dy - pad,
       x1: maxX + dx + pad, y1: maxY + dy + pad
     };
@@ -863,15 +871,18 @@
   // The layer: one canvas, cut to the flourish's bounding box, at the same
   // resolution as the backing store. Its transform carries the box offset, so
   // the segments below are stroked in the same CSS-pixel coordinates the path
-  // is expressed in and the blit is a whole number of device pixels.
+  // is expressed in and the blit is a whole number of device pixels. The
+  // resolution is read off `ghost`, not off the global, so the layer and the
+  // offsets it hands back can only ever be the ones this layout was cut for.
   function makeGhostLayer() {
-    var ox = Math.floor(ghost.x0 * backingScale);
-    var oy = Math.floor(ghost.y0 * backingScale);
+    var scale = ghost.scale;
+    var ox = Math.floor(ghost.x0 * scale);
+    var oy = Math.floor(ghost.y0 * scale);
     var c = document.createElement('canvas');
-    c.width = Math.max(1, Math.ceil(ghost.x1 * backingScale) - ox);
-    c.height = Math.max(1, Math.ceil(ghost.y1 * backingScale) - oy);
+    c.width = Math.max(1, Math.ceil(ghost.x1 * scale) - ox);
+    c.height = Math.max(1, Math.ceil(ghost.y1 * scale) - oy);
     var g = c.getContext('2d');
-    g.setTransform(backingScale, 0, 0, backingScale, -ox, -oy);
+    g.setTransform(scale, 0, 0, scale, -ox, -oy);
     g.strokeStyle = PALETTE[0].hex;
     g.lineCap = 'round';
     g.lineJoin = 'round';
@@ -907,11 +918,14 @@
   }
 
   // Called from redraw(), so the flourish survives a resize or a dpr change:
-  // the path is rebuilt against the new canvas and repainted to the same point
-  // in its draw-in.
+  // the layout is rebuilt against the new canvas and repainted to the same
+  // point in its draw-in. "The new canvas" is its CSS size *and* its backing
+  // resolution — a dpr change at a constant CSS size (dragging a window
+  // between a HiDPI and a standard monitor, an OS display-scale change) moves
+  // only `backingScale`, and it invalidates the layer just as thoroughly.
   function paintGhostSoFar() {
     if (!ghostActive()) return;
-    if (!ghost || ghost.w !== viewW || ghost.h !== viewH) {
+    if (!ghost || ghost.w !== viewW || ghost.h !== viewH || ghost.scale !== backingScale) {
       ghost = buildGhost();
       ghostLayer = ghostLayerCtx = null;
     }
