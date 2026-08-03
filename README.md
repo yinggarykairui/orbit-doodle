@@ -16,7 +16,7 @@ Open `index.html` in any browser. No build, no install, no network.
 
 ## Why it exists
 
-Orbit physics turns clumsy pointer input into flourishes, so anyone can draw something worth keeping. It has been back twice since: once for undo and redo, which paid for two more pens; and once for the opening flourish, because the demo link used to open on a black rectangle.
+Orbit physics turns clumsy pointer input into flourishes, so anyone can draw something worth keeping. It has been back twice since: once for undo and redo, which paid for two more pens; and once for the opening flourish, because the demo link used to open on a near-black canvas, the full control bar and one line of text asking for a gesture — and nothing the toy had drawn.
 
 ---
 
