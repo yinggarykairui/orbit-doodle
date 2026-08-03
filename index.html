@@ -685,14 +685,41 @@
   // 320x568 and in landscape.
   var TAU = Math.PI * 2;
   var GHOST_PHASE_EASE = 3;
+  // Clear space kept between the flourish and the hint's text box, and between
+  // the flourish and the canvas edges.
+  var GHOST_HINT_GAP = 14;
+  var GHOST_EDGE_GAP = 10;
+
+  // The strip of canvas the flourish is allowed to occupy. Both it and the hint
+  // used to be centred in #stage, so the figure walked straight through the
+  // page's only instruction: at 375x667 it crossed "the pen orbits" head-on —
+  // 11.3% of the hint's text box was flourish ink and a glyph over a bead
+  // measured 1.07:1, i.e. invisible. A demonstration that hides the sentence
+  // telling you how to use the toy is worse than no demonstration.
+  //
+  // The box is measured, not assumed: a Range over the hint's contents returns
+  // the union of its line boxes, so a hint that wraps to two lines at 320px is
+  // measured as two lines, and a hint whose text changes is measured again on
+  // the next build. The flourish takes the taller of the two strips left over.
+  function ghostBand() {
+    var top = GHOST_EDGE_GAP;
+    var bottom = viewH - GHOST_EDGE_GAP;
+    var hb = null;
+    var range = document.createRange();
+    range.selectNodeContents(hint);
+    var b = range.getBoundingClientRect();
+    var s = canvas.getBoundingClientRect();
+    if (b.width > 0 && b.height > 0) hb = { top: b.top - s.top, bottom: b.bottom - s.top };
+    if (!hb) return { top: top, bottom: bottom };
+    var above = { top: top, bottom: Math.min(bottom, hb.top - GHOST_HINT_GAP) };
+    var below = { top: Math.max(top, hb.bottom + GHOST_HINT_GAP), bottom: bottom };
+    return (above.bottom - above.top) >= (below.bottom - below.top) ? above : below;
+  }
 
   // The physics of `tick`, run at exactly one 60fps frame per step (frames === 1,
   // so the lerp is pen.chase itself). Deterministic: same canvas size in, same
   // path out, on load and after any resize.
-  function buildGhost() {
-    var pen = scaledPen(PENS.orbit);
-    var ax = Math.min(pen.radius * 7.2, viewW * 0.30);
-    var ay = Math.min(pen.radius * 2.95, viewH * 0.22);
+  function ghostPath(pen, ax, ay) {
     function px_(s) { return viewW / 2 + ax * Math.sin(TAU * s); }
     function py_(s) { return viewH / 2 + ay * Math.sin(2 * TAU * s); }
 
@@ -719,12 +746,36 @@
       if (px < minX) minX = px; else if (px > maxX) maxX = px;
       if (py < minY) minY = py; else if (py > maxY) maxY = py;
     }
+    return { pts: pts, minX: minX, maxX: maxX, minY: minY, maxY: maxY };
+  }
+
+  function buildGhost() {
+    var pen = scaledPen(PENS.orbit);
+    var ax = Math.min(pen.radius * 7.2, viewW * 0.30);
+    var ay = Math.min(pen.radius * 2.95, viewH * 0.22);
+    var band = ghostBand();
+    var avail = band.bottom - band.top;
+    var g = ghostPath(pen, ax, ay);
+    // The figure is roughly 2*ay tall plus the orbit's own diameter, so taking
+    // half the overflow off ay lands within a pixel or two of fitting and the
+    // loop converges in one pass at every size tested. The bound is what makes
+    // it safe: an ay that reaches 0 leaves a straight run with its loops on it,
+    // which is still the pen's line — the orbit radius is never touched,
+    // because shrinking that would misrepresent the pen the toy actually draws
+    // with.
+    for (var n = 0; n < 8 && (g.maxY - g.minY) > avail && ay > 0; n++) {
+      ay = Math.max(0, ay - ((g.maxY - g.minY) - avail) / 2 - 0.5);
+      g = ghostPath(pen, ax, ay);
+    }
+    var pts = g.pts;
+    var minX = g.minX, maxX = g.maxX, minY = g.minY, maxY = g.maxY;
     // Centre the result, not the script. The orbit centre trails the pointer,
     // so the ink lands a little behind the figure that produced it — 58px left
     // of centre at 1440x900. Translating by the measured offset costs one pass
-    // and makes the margins even at every size.
+    // and makes the margins even at every size. Horizontally that is the
+    // canvas; vertically it is the band, which is what keeps the hint clear.
     var dx = (viewW - (minX + maxX)) / 2;
-    var dy = (viewH - (minY + maxY)) / 2;
+    var dy = (band.top + band.bottom - (minY + maxY)) / 2;
     var pad = 0;
     for (var j = 0; j < pts.length; j += 3) {
       pts[j] += dx;
