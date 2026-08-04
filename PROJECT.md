@@ -461,7 +461,7 @@ obvious in a screenshot.
 - [x] README made true: the flourish described exactly as it behaves, including
       that it is not part of the drawing and what does and does not dismiss it,
       and both prose sections brought inside STYLE.md's sentence limits.
-- [x] `screenshot.png` recaptured from this increment's build, at `3ee0181`
+- [x] `screenshot.png` recaptured from this increment's build, at `41b364d`
       (verified: 2400x1600 in the file, which is 1200x800 at
       deviceScaleFactor 2). Three strokes, one per pen, each carried through
       its settle so the closing curl the pen leaves is in frame: `drift` in
@@ -472,7 +472,7 @@ obvious in a screenshot.
       alt text describes the drawing and the bar; there is no caption paragraph,
       because STYLE.md's template has no slot for one. Today's flourish fixes
       do not stale it: the flourish is not in the frame, and stroke rendering
-      is pixel-identical to `c84b362` (re-proved below).
+      is pixel-identical to `6e47766` (re-proved below).
 - [x] Still one HTML file and exactly one network request at 1440x900, 375x667
       and 320x568; console clean on every run above; no page scroll at 320 px
       (scrollWidth 320 = clientWidth, scrollHeight 568 = clientHeight).
@@ -480,14 +480,14 @@ obvious in a screenshot.
       harness installs a fake `requestAnimationFrame` before the page script
       runs, so both builds integrate the same `dt` sequence, drives one scripted
       90-sample gesture through real pointer events, and compares
-      `canvas.toDataURL()` against `c84b362`. 36 comparisons identical: 8
+      `canvas.toDataURL()` against `6e47766`. 36 comparisons identical: 8
       viewport/dpr combinations (1440x900 at dpr 1 and 2, 1200x800 dpr 2,
       1024x768 dpr 1.5, 375x667 at dpr 2 and 3, 320x568 dpr 2, 667x375 dpr 2,
       600x300 dpr 1) across all three pens and five colours, each run three
       ways — from a cold load, with the flourish live at `pointerdown`, and
       with an undo+redo replay after the stroke. Re-proved from scratch after
       cycle 2's three code fixes with an independently written harness of the
-      same shape: 24 comparisons against `c84b362` (1440x900 at dpr 1 and 2,
+      same shape: 24 comparisons against `6e47766` (1440x900 at dpr 1 and 2,
       1200x800 dpr 2, 1024x768 dpr 1.5, 375x667 at dpr 2 and 3, 320x568 dpr 2,
       667x375 dpr 2, each with `orbit`/warm white, `coil`/sky blue and
       `drift`/gold, gesture carried through the full settle), all identical.
@@ -497,11 +497,11 @@ obvious in a screenshot.
 - **The flourish clips its own edge on a canvas under about 250 px tall.**
   Found by the independent post-loop pass of 2026-08-02, after the loop cap was
   spent, so it is recorded rather than fixed. The cycle-3 placement change
-  (`17af159`) improved every size at or above 375x250 — min edge margin 7 → 13 px
+  (`0a0a9ea`) improved every size at or above 375x250 — min edge margin 7 → 13 px
   — but the tie-break it flipped costs margin at the very bottom of the range,
   where the control bar wraps to three rows and the canvas is left about 83 px
-  tall. Measured at 375x240 dpr 1: min edge margin 5.0 px on `3ee0181` with 0
-  clipped pixels, 1.0 px on `4c91833` with 26 pixels on the boundary; 320x240
+  tall. Measured at 375x240 dpr 1: min edge margin 5.0 px on `41b364d` with 0
+  clipped pixels, 1.0 px on `639dc1d` with 26 pixels on the boundary; 320x240
   clips 65. The threshold is sharp — 375x250 is clean and better than before.
   At 200 px of viewport height (canvas ~43 px) the figure is pushed off-canvas
   and draws nothing at all, where the old build drew 159 px that crossed the
